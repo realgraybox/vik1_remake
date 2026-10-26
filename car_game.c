@@ -9,9 +9,7 @@
 
 #include <signal.h>
 
-#include <signal.h>
-
-const char *last_func = "startup";
+const char *last_func = "startup"; // global variable
 
 void segfault_handler(int sig) {
     fprintf(stderr, "\n=== SEGFAULT DETECTED ===\n");
@@ -59,8 +57,21 @@ int w=0;		//is_night
 char P[99];
 unsigned int color_val;
 //test endgame condition
-int laps = 0;
-int max_laps = 3;
+int laps = -1;
+int max_laps = 2;
+
+int max_speed = 0;
+int race_start_time = 0;
+int lap_start_time = 0;
+int total_time = 0;
+int fastest_lap = 999999;
+int last_lap_time   = 0;
+
+enum GameState {
+    STATE_RACING,
+    STATE_FINISHED
+};
+int game_state = STATE_RACING;
 //
 //scaletest
 #define SCALE 2
@@ -100,20 +111,92 @@ int draw_mode_setcolors(int argc) {
         center_x + m, o,
         center_x + n, o);
     
-    gettimeofday((struct timeval*)H, 0); // Record timestamp
+	//gettimeofday((struct timeval*)H, 0); // Record timestamp
     return 0;
 }
 
-/*void draw_mode_copy_to_screen() {
-//	printf("[DEBUG draw_mode_copy_to_screen]\n");	
-	// Copy drawn area to screen
-	XCopyArea(display, pixmap, window, gc, 0, 0, screen_width, screen_height, 0, 0);
-	XSync(display, 0);
-	XFlush(display);
-	usleep(FRAME_DELAY_US);  // sleep time (FPS) in milliseconds
-    return;
-}*/
+//banner test
+void draw_finish_banner() {
 
+    char buffer[256];
+
+    // Dark overlay effect (simple full-screen rectangle)
+    XSetForeground(display, gc, 0x000000);
+    XFillRectangle(display, pixmap, gc,
+                   0, 0,
+                   INTERNAL_WIDTH,
+                   INTERNAL_HEIGHT);
+
+    XSetForeground(display, gc, 0xFFFFFF);
+
+    int y = 60;
+
+    XDrawString(display, pixmap, gc,
+                120, y,
+                "=== RACE FINISHED ===",
+                strlen("=== RACE FINISHED ==="));
+
+    y += 30;
+	
+    snprintf(buffer, sizeof(buffer),
+             "Total Time: %d'%02d\"%02d",
+             total_time / 100 / 60,
+             total_time / 100 % 60,
+             total_time % 100);
+
+    XDrawString(display, pixmap, gc, 100, y, buffer, strlen(buffer));
+
+    y += 25;
+
+    snprintf(buffer, sizeof(buffer),
+             "Fastest Lap: %d'%02d\"%02d",
+             fastest_lap / 100 / 60,
+             fastest_lap / 100 % 60,
+             fastest_lap % 100);
+
+    XDrawString(display, pixmap, gc, 100, y, buffer, strlen(buffer));
+
+    y += 25;
+
+    snprintf(buffer, sizeof(buffer),
+             "Max Speed: %d mph",
+             max_speed);
+
+    XDrawString(display, pixmap, gc, 100, y, buffer, strlen(buffer));
+
+    y += 40;
+
+    XDrawString(display, pixmap, gc,
+                80, y,
+                "Press R to Restart or ESC to Exit",
+                strlen("Press R to Restart or ESC to Exit"));
+}
+
+int time_trigger () {
+	gettimeofday(&tv, 0);
+	H[0] = tv.tv_sec;  // seconds
+	H[1] = tv.tv_usec;  // microseconds
+	h = SPEED_SCALE * H[0] + H[1] / p - c;
+	return h;
+}
+
+void reset_game() {
+
+    laps = 0;
+    max_speed = 0;
+    fastest_lap = 999999;
+    total_time = 0;
+    lap_start_time = 0;
+	u = 0;
+	s = 0;
+    
+    C[INPUT_OFFSET + XK_Up] = 0;
+	C[INPUT_OFFSET + XK_Left] = 0;
+	C[INPUT_OFFSET + XK_Right] = 0;
+	C[INPUT_OFFSET + XK_space] = 0;
+
+    game_state = STATE_RACING;
+}
 //scale test
 void draw_mode_copy_to_screen() {
 
@@ -178,14 +261,6 @@ void draw_mode_copy_to_screen() {
     XDestroyImage(scaled);
 
     usleep(FRAME_DELAY_US);
-}
-
-int time_trigger () {
-	gettimeofday(&tv, 0);
-	H[0] = tv.tv_sec;  // seconds
-	H[1] = tv.tv_usec;  // microseconds
-	h = SPEED_SCALE * H[0] + H[1] / p - c;
-	return h;
 }
 
 void draw_mountains() {
@@ -266,14 +341,21 @@ void draw_center_line() {	// draw midt strips on road
 
 void draw_HID() {	// draw timer
     // draw status text
+    int high = 0;
+    if (laps > 0)	//fix initial wrong high time
+		high = q;
+		
+   // printf("[DBG] high=%d, labs=%d\n",high, laps);
+    
     len = snprintf(P, sizeof(P),
         "Time: %1d'%02d\"%02d      High: %1d'%02d\"%02d      Speed: %03dmph",
         h / 100 / 60, h / 100 % 60, h % 100,
-        q / 100 / 60, q / 100 % 60, q % 100,
+        high / 100 / 60, high / 100 % 60, high % 100,
         s
     );
-    //XSetForeground(display, gc, 13107200);	// red letters
+    
     XDrawString(display, pixmap, gc, 30, x, P, len);
+    fastest_lap = high;
 }
 
 void draw_snow() {	// draw snow
@@ -310,8 +392,7 @@ if ( argc > 2) {
 p = 10660;
 
 display = XOpenDisplay (0);
-	
-//window = XCreateSimpleWindow (display, RootWindow(display, 0), 0, 0,  screen_width, screen_height, 0, 0, 0);
+
 window = XCreateSimpleWindow (display, RootWindow(display, 0), 0, 0,  window_width, window_height, 0, 0, 0);
 gc = XCreateGC (display, window, 0, 0);
 	
@@ -322,14 +403,16 @@ XSelectInput (display, window, KeyPressMask | KeyReleaseMask);
 // Make the window visible
 XMapWindow (display, window);
 // Create a pixmap (offscreen drawing area)
-//pixmap = XCreatePixmap (display, window, screen_width, d = screen_height, DefaultDepth(display, 0));
 pixmap = XCreatePixmap (display, window, INTERNAL_WIDTH, d = INTERNAL_HEIGHT, DefaultDepth(display, 0));
 
 int running = 1;
 
 while (running) {
-	//loop2();
-//	printf("[DEBUG enters previous loop2 code]\n");
+
+race_start_time = h;
+lap_start_time = h;
+
+if (game_state == STATE_RACING) {
     while (1) {
         // Step 1: count and check if zero game timers
         r++;
@@ -365,11 +448,10 @@ while (running) {
                 } else {	//below prevents rare segfaults 
 						int idx = INPUT_OFFSET + key;
 						if (idx >= 0 && idx < (1<<18)) {
-							C[idx] ^= (event.type == KeyPress || event.type == KeyRelease);
+							C[idx] = (event.type == KeyPress);
 						} else {
 							printf("[WARN] Invalid key=%d idx=%d (ignored)\n", key, idx);
 						}
-                    //C[INPUT_OFFSET + key] ^= (event.type == KeyPress || event.type == KeyRelease);
                 }
             } else {
                 // no events, break loop2
@@ -377,8 +459,7 @@ while (running) {
             }
         }
     } // end while(1)
-	//loop3();// draw mountains, sky, sun and background
-//printf("[DEBUG enters previous loop3 code]\n");
+
     // --- read input ---
     int steer = C[INPUT_OFFSET + XK_Right] - C[INPUT_OFFSET + XK_Left];
     // --- update stearing ---
@@ -391,20 +472,26 @@ while (running) {
     int accel = C[INPUT_OFFSET + XK_Up] * 3;   // 3 if arrow_up, otherwise 0
     int decel = !!s;                            // 1 if s > 0, otherwise 0
     int new_s = accel + s - decel;
-    if (new_s > a) new_s = a;
+    if (new_s > 300) new_s = 300;	//set max speed by changing a to number
     s = new_s;
+    //winner banner test
+    if (s > max_speed)
+    max_speed = s;
+    //
     u += s / 9;
     // --- update rounds and reset if passing goalline...
-    if (u > p) {
+    if (u > p) {	//u = distance along track, p = track length, h = current time, q = best time
 		//endgame test
 		laps++;
-printf("[endgame test] laps=%d\n", laps);
+		printf("[endgame test] laps=%d\n", laps);
+		total_time = total_time + h - 53300;		
+		printf("[endgame test] total_time=%d\n", total_time);
 		if (laps >= max_laps) {
-			running = 0;
-			break;
+			game_state = STATE_FINISHED;
 		}
 		
         if (h < q) q = h;     // save best time
+        
         u %= p;               // Wrap distance
         u = 0;                // zero distance
         c = 0;                // zero rounds
@@ -452,8 +539,7 @@ printf("[endgame test] laps=%d\n", laps);
             }
         }
     }	
-	//loop4();// drawing of road, strips and grass
-//printf("[DEBUG enters previous loop4 code]\n");
+
     // initialising (earlier for-loops first section)
     x = 0; g = 0; m = 0; f = 0;
     a = i = u + screen_height;
@@ -484,8 +570,7 @@ printf("[endgame test] laps=%d\n", laps);
             }
         }
     }
-	//loop5();// drawing of cars
-//printf("[DEBUG enters previous loop5 code]\n");
+
     k = i = 0; x = g; l = b;
     while (1) {
         // Condition-logic
@@ -515,8 +600,6 @@ printf("[endgame test] laps=%d\n", laps);
 		draw_mode_setcolors(h); // colors of cars
         h = (k * r + k * f / INPUT_OFFSET);
     }	
-	//loop6();
-//printf("[DEBUG enters previousloop6 code]\n");
    
     time_trigger();
 
@@ -532,5 +615,25 @@ printf("[endgame test] laps=%d\n", laps);
     //end previos loop6 code
 	draw_mode_copy_to_screen();
 	}
+	else if (game_state == STATE_FINISHED) {
+        draw_finish_banner();
+        draw_mode_copy_to_screen();
+
+        while (XPending(display)) {
+            XNextEvent(display, &event);
+            int key = XLookupKeysym(&event.xkey, 0);
+
+            if (key == XK_Escape) {
+                running = 0;
+            }
+            else if (key == XK_r || key == XK_R) {
+                reset_game();
+            }
+        }
+
+        usleep(FRAME_DELAY_US);
+        continue;
+    }
+}
 	return 0;
 }

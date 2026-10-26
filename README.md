@@ -1,3 +1,4 @@
+<img width="806" height="425" alt="vik1_remake_snow" src="https://github.com/user-attachments/assets/cb32f0a1-900e-4eac-8496-c1d15318f3c0" />
 # vik1 remake
 
 A readable and extended version of **vik1**, Daniel Vik's car racing game that won

@@ -33,21 +33,29 @@ Window window;
 Pixmap pixmap;
 GC gc;
 XEvent event;
+int argc;
 
-int draw_mode_loop3_caseA(int value) {
-    printf("[DM_L3 recusive call]:argc=%d,q=%d,h=%d,c=%d,u=%d,p=%d\n",
-		value,q,h,c,u,p);
-   return main(value, global_argv);
-}
-
-void parse_arguments(char *arg) {
-    z = (strchr(arg, 'a') != NULL);	//is_winter
-    w = (strchr(arg, 'd') != NULL);	//is_night
-    if (strchr(arg, '1')) {	//track_number B=4 is default			
-        B = 3;
-    } else if (strchr(arg, '2')) {
-        B = 2;
-    }
+void parse_arguments(int argc, char *argv[]) {
+	static int already_called = 0;
+	if (already_called) { // If already parsed do nothing
+		return;
+	}
+	printf("[DEBUG parse_arguments]\n");
+    if (argc == 1) { 
+		already_called = 1;	
+		return;
+	}
+	if (argc == 2 ) {
+		z = (strchr(argv[1], 'a') != NULL);	//is_winter
+		w = (strchr(argv[1], 'd') != NULL);	//is_night
+		if (strchr(argv[1], '1')) {	//track_number B=4 is default			
+			B = 3;
+		} else if (strchr(argv[1], '2')) {
+			B = 2;
+		}
+	already_called = 1;	
+	}
+	return;
 }
  
 unsigned int color_component(int a, int argc, int y, int v, int z, int w) {
@@ -57,7 +65,6 @@ unsigned int color_component(int a, int argc, int y, int v, int z, int w) {
 }
 
 int draw_mode_setcolors(int argc) {
-	//printf("[DEBUG draw_mode_setcolors]\n");
 	color_val =  color_component(0, argc, y, v, z, w) |
 			color_component(8, argc, y, v, z, w) |
 			color_component(16, argc, y, v, z, w);
@@ -69,17 +76,21 @@ int draw_mode_setcolors(int argc) {
     return 0;
 }
 
-int draw_mode_copy_to_screen(int argc) {
+void draw_mode_copy_to_screen() {
 	printf("[DEBUG draw_mode_copy_to_screen]\n");	
 	// Copy drawn area to screen
 	XCopyArea(display, pixmap, window, gc, 0, 0, 2 * screen_height, screen_height, 0, 0);
 	XSync(display, 0);
 	XFlush(display);
 	usleep(FRAME_DELAY_US);  // sleep time (FPS) in milliseconds
-    return 0;
+    return;
 }
 
-int draw_mode_graphics_setup (int argc) {
+void draw_mode_graphics_setup () {
+	static int already_called = 0;
+	if (already_called) { // If already parsed do nothing
+		return;
+	}
 	printf("[DEBUG draw_mode_graphics_setup]\n");
 	display = XOpenDisplay (0);
 	
@@ -93,59 +104,54 @@ int draw_mode_graphics_setup (int argc) {
 	XMapWindow (display, window);	// Make the window visible
 	// Create a pixmap (offscreen drawing area)
 	pixmap = XCreatePixmap (display, window, screen_height * 2, d = screen_height, DefaultDepth(display, 0));
-	
-    return 0;
+	already_called = 1;
 }
 
-int time_trigger (int argc) {
-		gettimeofday(&tv, 0);
-		H[0] = tv.tv_sec;
-		H[1] = tv.tv_usec;
-		h = SPEED_SCALE * H[0] + H[1] / p - c;
-		return h;
+int time_trigger () {
+	gettimeofday(&tv, 0);
+	H[0] = tv.tv_sec; 
+	H[1] = tv.tv_usec;
+	h = SPEED_SCALE * H[0] + H[1] / p - c;
+	return h;
 }
 
-int reset_current_lap (int argc) {	
-	//this replace recursive call with argc=0
+int reset_current_lap (int argc) {
+	printf("[DEBUG reset_current_lap]\n");
 	argc=0;
-	u=0;
-	//it should set u=0
-	//return
+	u=0; 
+	c=0;
+	gettimeofday((struct timeval*)H, 0); // Record timestamp
 	return SPEED_SCALE * *H + 1[H]/p - c;
 }
 
 int main(int argc, char** argv) {
 
-if (!global_argv) {
-    global_argv = argv;
-}
-
 int screen_width = screen_height * 2;
+
+parse_arguments(argc, argv);
+draw_mode_graphics_setup ();
 
 // 1. for-loop for(initialization; condition; increment/decrement)
 printf("[DEBUG enters loop1]\n");
 for (
     p = 10660;
      --argc & ~1 ? (	// Behavior depending on argc
-			draw_mode_setcolors(argc) 	//Set foreground color & draw lines
+			printf("[DEBUG in loop1 calling gettimeofday]\n"),
+			gettimeofday((struct timeval*)H, 0) // Record timestamp
     ) : argc ? (
-			parse_arguments(argv[1]), //z, w, and B is winter, night and track_number
-			argc	// Keep argc unchanged
+			printf("[DEBUG in loop1 setting argc]\n"),
+			argc	// Keep argc unchanged			
     ) : ++argc;
-			draw_mode_copy_to_screen(argc)
+			draw_mode_copy_to_screen()
 )
 	{	
 	// 2. for-loop
 	printf("[DEBUG enters loop2]\n");
 	for ( 
-		3[H] = INPUT_OFFSET;	// Sets a timestamp or animation counter
-		p==++r ? (
-		// Initial setup when r reaches p
-		draw_mode_graphics_setup (argc),
-		// Reset various control variables
+		3[H] = INPUT_OFFSET;	// Sets a timestamp?
+		p==++r ? ( // Initial setup when r reaches p
+		// Reset various control variables?
 		u = h = q = TIME_SCALE		//53300
-		
-		
 	) : r < p ? (
 		// Ongoing pre-game setup (random track generation?)
 		a = r / screen_height % 6,
@@ -172,38 +178,25 @@ for (
 	for (
 		// 1. Userinput: right and left arrows
 		k = C[INPUT_OFFSET + XK_Right] - C[INPUT_OFFSET + XK_Left],
-    
-		// 2. Jerk acceleration if arrow key is pressed, else decay
+ 		// 2. Jerk acceleration if arrow key is pressed, else decay?
 		j = k ? j + v * k * (j * k < 8) : j * 0.9, 
-    
 		// 3. Speed update if space is held (s = skid or boost?)
 		u += (s = min(C[INPUT_OFFSET + XK_Up] * 3 + s - !!s, a)) / 9,
-		
-		printf("[DEBUG LOOP3 before recursive call] argc=%d,q=%d,h=%d,c=%d,u=%d,p=%d\n", argc,q,h,c,u,p),
-				
-	//	printf("[DEBUG LOOP3.2] j=%d,k=%d,v=%d,s=%d,a=%d\n", j,k,v,s,a),
-		
-		// 4. Lap action: if passed finish line
-		c = u > p		// if u is greater than p which is fixed 10660 then:
+		// 4. Initial timing setup/handling: if passed finish line
+		c = u > p		// hvis u er større end p
 			? (q = min(h, q), u %= p, 
-			draw_mode_loop3_caseA(c = 0)
-      		//reset_current_lap(c=0)
-      		)
-			//draw_mode_setcolors(c = 0))
+      		reset_current_lap(c=0)
+       		)
 			: c, 
-		
-		// 5. Horizontal movement (track offset)
-		t += j * (s + SPEED_SCALE) / screen_width - s / i * (C[u + 4] - C[u]), 
-    
-		// 6. Adjust speed if too fast, or reset if crash
+		// 5. Horizontal movement (track offset)?
+		t += j * (s + SPEED_SCALE) / screen_width - s / i * (C[u + 4] - C[u]),    
+		// 6. Adjust speed if too fast, or reset if crash?
 		s = t * t > p 
-			? (t *= 0.97, s * 0.8)					// speed decay
+			? (t *= 0.97, s * 0.8)	// speed decay?
 			: (g > a && b * b < screen_height * 9 ? i : s), 	// crash condition?
-		
-		// 7. Reset several control variables
+		// 7. Reset several control variables?
 		i = k = l = 0, 
 		o = n = screen_width; 
-		
 		i - 5;	// Loop runs as long as i < 5
 		
 		// Drawing logic, depends on state of 'k' (movement/input)
@@ -221,41 +214,41 @@ for (
 	printf("[DEBUG enters loop4]\n");
 	for (
 		// Initialization of next for-loop
-		
 		x = g = m = f = 0, 
 		a = i = u + screen_height, 
 		d += 9; 
-    
-		o < f 
+ 		o < f 
 			? 
-				n = 2 * screen_width,
-				draw_mode_setcolors(z ? r + k * INPUT_OFFSET * 8 : TIME_SCALE - k * SPEED_SCALE * SPEED_SCALE),
+
+			n = 2 * screen_width,
+			draw_mode_setcolors(z ? r + k * INPUT_OFFSET * 8 : TIME_SCALE - k * SPEED_SCALE * SPEED_SCALE),
 				
-				n = 9 + x / screen_height,
-				draw_mode_setcolors(!k + z ? r = screen_height * INPUT_OFFSET + 9 : SPEED_SCALE << 17),	
+			n = 9 + x / screen_height,
+			draw_mode_setcolors(!k + z ? r = screen_height * INPUT_OFFSET + 9 : SPEED_SCALE << 17),	
           
-				n -= x / 9 / screen_height,
-				draw_mode_setcolors(i % p > 6 ? h = r * (3 + z) / 5 : r),
+			n -= x / 9 / screen_height,
+			draw_mode_setcolors(i % p > 6 ? h = r * (3 + z) / 5 : r),
 				
-				n = x / 13 / screen_width,
-				draw_mode_setcolors(k ? h : r),
+			n = x / 13 / screen_width,
+			draw_mode_setcolors(k ? h : r),
 			
-				o++		
-			: (
-				f = x / screen_height + 70 + C[i + p] - C[u + p],
+			o++		
+		: (
+
+			f = x / screen_height + 70 + C[i + p] - C[u + p],
+
+			o = x ? o : f,
             
-				o = x ? o : f,
+			k = 2 * i / 41 % 2,		
             
-				k = 2 * i / 41 % 2,	
+			l = C[--i] - C[u] - t,		
             
-				l = C[--i] - C[u] - t,	
+			x += screen_height - (y = i - u),	
             
-				x += screen_height - (y = i - u),	
-            
-				g = (d - i) % 410 ? g : (a = o, b = l + B * x / screen_width, x) / SPEED_SCALE,
-            
-				i > u
-			);
+			g = (d - i) % 410 ? g : (a = o, b = l + B * x / screen_width, x) / SPEED_SCALE,
+
+			i > u
+		);
 	);
 
 	// 5. for-loop
@@ -275,14 +268,12 @@ for (
 			h = (k * r + k * f / INPUT_OFFSET),
 			draw_mode_setcolors(h -1),		//update car colors and draw
 			h = (k * r + k * f / INPUT_OFFSET)
-			
 	);
 
 	// 6. for-loop
 	printf("[DEBUG enters loop6]\n");
 	for (
-		time_trigger(argc),
-		
+		time_trigger(),
 		// If g is true, keep B; otherwise, set B based on h mod 3
 		B = g ? B : 1 - h % 3,
 
@@ -305,7 +296,5 @@ for (
 		draw_mode_setcolors(ARG_WINTER_MODE - 1)	// Trigger snow in wintermode
 	);
 	}
-	printf("[DEBUG end program] j=%d,k=%d,v=%d,s=%d,a=%d\n", j,k,v,s,a);
-	printf("[DEBUG end program] return=%d\n", SPEED_SCALE * *H + 1[H]/p - c);
 	return SPEED_SCALE * *H + 1[H]/p - c;
 }

@@ -9,67 +9,75 @@ int o, b, f, u, s, c, a, t, e, d, C[1<<18], A=100, B=4, D=200, E=53300, F=65793,
 int main(int, char **);
 char **global_argv;  // global pointer to the arguments
 
+//naming variables: 
+//K replaced with display
+//L replaced with window
+//M replaced with pixmap
+//N replaced with gc
+//O replaced with event
+
 
 int draw_mode_loop3_caseA(int value) {
 	//static int counter = 0;
    // printf("[draw_mode_loop6_caseB] Call #%d with value: %d\n", ++counter, value);
-    printf("draw_mode_loop6_caseB(%d)\n", value);
+    printf("draw_mode_loop3_caseA(%d)\n", value);
     return main(value, global_argv);  // use global_argv here
 }
 
 int draw_mode_loop3_caseB(int value) {
 	//static int counter = 0;
    // printf("[draw_mode_loop6_caseB] Call #%d with value: %d\n", ++counter, value);
-    printf("draw_mode_loop6_caseB(%d)\n", value);
+   // printf("draw_mode_loop3_caseB(%d)\n", value);
     return main(value, global_argv);  // use global_argv here
 }
 
 int draw_mode_loop4_caseA(int value) {
 	//static int counter = 0;
    // printf("[draw_mode_loop6_caseB] Call #%d with value: %d\n", ++counter, value);
-    printf("draw_mode_loop6_caseB(%d)\n", value);
+  //  printf("draw_mode_loop4_caseA(%d)\n", value);
     return main(value, global_argv);  // use global_argv here
 }
 
 int draw_mode_loop4_caseB(int value) {
 	//static int counter = 0;
    // printf("[draw_mode_loop6_caseB] Call #%d with value: %d\n", ++counter, value);
-    printf("draw_mode_loop6_caseB(%d)\n", value);
+  //  printf("draw_mode_loop4_caseB(%d)\n", value);
     return main(value, global_argv);  // use global_argv here
 }
 
 int draw_mode_loop4_caseC(int value) {
 	//static int counter = 0;
    // printf("[draw_mode_loop6_caseB] Call #%d with value: %d\n", ++counter, value);
-    printf("draw_mode_loop6_caseB(%d)\n", value);
+ //   printf("draw_mode_loop4_caseC(%d)\n", value);
     return main(value, global_argv);  // use global_argv here
 }
 
 int draw_mode_loop4_caseD(int value) {
 	//static int counter = 0;
    // printf("[draw_mode_loop6_caseB] Call #%d with value: %d\n", ++counter, value);
-    printf("draw_mode_loop6_caseB(%d)\n", value);
+  //  printf("draw_mode_loop4_caseD(%d)\n", value);
     return main(value, global_argv);  // use global_argv here
 }
 
 int draw_mode_loop5_caseA(int value) {
 	//static int counter = 0;
    // printf("[draw_mode_loop6_caseB] Call #%d with value: %d\n", ++counter, value);
-    printf("draw_mode_loop6_caseB(%d)\n", value);
+ //   printf("draw_mode_loop5_caseA(%d)\n", value);
     return main(value, global_argv);  // use global_argv here
 }
+
 int draw_mode_loop6_caseA(int value) {
 	//static int counter = 0;
    // printf("[draw_mode_loop6_caseB] Call #%d with value: %d\n", ++counter, value);
-    printf("draw_mode_loop6_caseB(%d)\n", value);
+   // printf("draw_mode_loop6_caseA(%d)\n", value);
     return main(value, global_argv);  // use global_argv here
 }
 
 int draw_mode_loop6_caseB(int value) {	//arg=a on the command line = winter driving
 	//static int counter = 0;
    // printf("[draw_mode_loop6_caseB] Call #%d with value: %d\n", ++counter, value);
-    printf("draw_mode_loop6_caseB(%d)\n", value);
-    return main(value, global_argv);  //use global_argv here
+ //   printf("draw_mode_loop6_caseB(%d)\n", value);
+    return main(value, global_argv);  // use global_argv here
 }
 
 
@@ -89,18 +97,22 @@ unsigned int color_component(int a, int argc, int D, int y, int v, int z, int w)
 }
 
 
-Display*K;
-Window L;
-Pixmap M;
-GC N;
+Display* display;
+Window window;
+Pixmap pixmap;
+GC gc;
 char P[99];
 
 
 int main(int argc, char** argv) {	
 
-global_argv = argv;  // save argv globally
+global_argv = argv;
 
-XEvent O;
+if (argv == NULL) {
+    printf("main called from draw_mode: value = %d\n", argc);
+}
+
+XEvent event;
 
 // 1. for-loop
 for (
@@ -109,15 +121,15 @@ for (
     // Conditional initialization depending on argc
     --argc & ~1 ? (
         // Set foreground color using bit-shifted color components
-        XSetForeground(K, N,
+        XSetForeground(display, gc,
             color_component(0, argc, D, y, v, z, w) |
             color_component(8, argc, D, y, v, z, w) |
             color_component(16, argc, D, y, v, z, w)
         ),
 
         // Draw car lines
-        XDrawLine(K, M, N, D + l - m, o, D + l - n, o),
-        XDrawLine(K, M, N, D + l + m, o, D + l + n, o),
+        XDrawLine(display, pixmap, gc, D + l - m, o, D + l - n, o),
+        XDrawLine(display, pixmap, gc, D + l + m, o, D + l + n, o),
 
         // Record timestamp
         gettimeofday((struct timeval*)H, 0)
@@ -136,9 +148,9 @@ for (
     ) : ++argc;
 
     // Copy drawn area to screen
-    XCopyArea(K, M, L, N, 0, 0, e, D, 0, 0),
-    XSync(K, 0),
-    XFlush(K),
+    XCopyArea(display, pixmap, window, gc, 0, 0, e, D, 0, 0),
+    XSync(display, 0),
+    XFlush(display),
 
     // Wait for a short timeout (non-blocking select)
     select(0, 0, 0, 0, ((struct timeval*)H) + 1)
@@ -151,18 +163,18 @@ for (
 		
 		p==++r ? (
 		// Initial setup when r reaches p
-		K = XOpenDisplay (0),
-		N = XCreateGC (K,
-		L = XCreateSimpleWindow (K, RootWindow(K, 0), 0, 0, e = D * 2, D, 0, 0, 0), 0, 0),
+		display = XOpenDisplay (0),
+		gc = XCreateGC (display,
+		window = XCreateSimpleWindow (display, RootWindow(display, 0), 0, 0, e = D * 2, D, 0, 0, 0), 0, 0),
 		
 		// Set input events to listen for key press/release
-		XSelectInput (K, L, KeyPressMask | KeyReleaseMask),
+		XSelectInput (display, window, KeyPressMask | KeyReleaseMask),
 		
 		// Make the window visible
-		XMapWindow (K, L),
+		XMapWindow (display, window),
 		
 		// Create a pixmap (offscreen drawing area)
-		M = XCreatePixmap (K, L, e, d = D, DefaultDepth(K, 0)), 
+		pixmap = XCreatePixmap (display, window, e, d = D, DefaultDepth(display, 0)), 
 		
 		// Reset various control variables
 		u = h = q = E
@@ -178,9 +190,9 @@ for (
 		v = 4 - 3 * z
 	):
 			// Event handling: poll key state changes
-			XPending (K) ? (
-				C[F+ XLookupKeysym (&O.xkey, 0 & XNextEvent (K, &O))]^=
-					(O.type == KeyPress || O.type==KeyRelease),
+			XPending (display) ? (
+				C[F+ XLookupKeysym (&event.xkey, 0 & XNextEvent (display, &event))]^=
+					(event.type == KeyPress || event.type == KeyRelease),
 					p
 			):0;
  );
@@ -214,6 +226,7 @@ for (
     o = n = e; 
 
 	// Loop runs as long as i < 5
+	//change below from 5 to 1 for debug?
     i - 5;
 
 	// Drawing logic, depends on state of 'k' (movement/input)
@@ -254,37 +267,37 @@ for (
     
     o < f 
         ? 
-			// Draw first row of road segment or terrain
+
 			n = 2 * e,
-			draw_mode_loop4_caseA(z ? r + k * F * 8 : E - k * A * A),	// Color depending on z and k
+			draw_mode_loop4_caseA(z ? r + k * F * 8 : E - k * A * A),	
           
 			n = 9 + x / D,
-			draw_mode_loop4_caseB(!k + z ? r = D * F + 9 : A << 17),	// Choose r or color
+			draw_mode_loop4_caseB(!k + z ? r = D * F + 9 : A << 17),	
           
 			n -= x / 9 / D,
-			draw_mode_loop4_caseC(i % p > 6 ? h = r * (3 + z) / 5 : r),	// Lighter line if we're far enough?
+			draw_mode_loop4_caseC(i % p > 6 ? h = r * (3 + z) / 5 : r),	
 			
 			n = x / 13 / e,
-			draw_mode_loop4_caseD(k ? h : r),		// Use lighter color if k
+			draw_mode_loop4_caseD(k ? h : r),		
 			
-			o++		// Next line
+			o++		
         : (
-            // If we are done drawing (o >= f), then recalculate new row
+            
             f = x / D + 70 + C[i + p] - C[u + p],
             
-            // The first time we hit here we set o = f
+          
             o = x ? o : f,
             
-            k = 2 * i / 41 % 2,		// Toggles between 0 and 1, maybe left/right
+            k = 2 * i / 41 % 2,		
             
-            l = C[--i] - C[u] - t,		// Terrain difference?
+            l = C[--i] - C[u] - t,		
             
-            x += D - (y = i - u),	// Propulsion in x, y is used for difference in depth
+            x += D - (y = i - u),	
             
-            // Determine new value for g – which can be color or shade?
+            
             g = (d - i) % 410 ? g : (a = o, b = l + B * x / e, x) / A,
             
-            // Stay in the loop until we're back to square one.
+           
             i > u
         );
 );
@@ -318,7 +331,7 @@ for (
     
     // Draw status text on screen
     XDrawString(
-        K, M, N,
+        display, pixmap, gc,
         30, x, P,
         sprintf(
             P,
@@ -341,5 +354,5 @@ for (
 );
 
 	}
-	return A**H+1[H]/p-c;
+	return A * *H + 1[H]/p - c;
 }

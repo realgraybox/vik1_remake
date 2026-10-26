@@ -1,639 +1,742 @@
+/*
+ * car_game.c - a readable and extended version of "vik1",
+ *              a winning entry of the 2004 IOCCC.
+ *
+ * The original program is kept unchanged in vik1.c.
+ *
+ * Build:  gcc -O2 -Wall -o car_game car_game.c -lX11
+ *
+ * Usage:  ./car_game [options]   options are letters in one word, e.g. "ad2"
+ *           a   winter (snow, slippery road)
+ *           d   night
+ *           1-3 track (3 is the default)
+ *           f   start in full screen
+ *
+ * Keys:   Up = accelerate, Left/Right = steer
+ *         F or F11 = toggle full screen, ESC = quit
+ *         R = new race (on the finish screen)
+ *
+ * The window can be resized freely. The game always draws into a
+ * 400x200 picture, which is scaled up to fill the window while
+ * keeping its proportions (black bars where needed).
+ */
+
 #include <stdio.h>
-#include <sys/time.h>
-#include <string.h>
-#include <unistd.h>  // for usleep
 #include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <unistd.h>
+#include <sys/time.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/Xatom.h>
+#include <X11/XKBlib.h>
 #include <X11/keysym.h>
 
-#include <signal.h>
-
-const char *last_func = "startup"; // global variable
-
-void segfault_handler(int sig) {
-    fprintf(stderr, "\n=== SEGFAULT DETECTED ===\n");
-    fprintf(stderr, "Signal: %d (Segmentation Fault)\n", sig);
-    fprintf(stderr, "Tip: Run under gdb for backtrace: gdb ./car_game core\n");
-    fflush(stderr); 
-    exit(1);
-}
-
-void install_segfault_handler(void) {
-    struct sigaction sa;
-    sa.sa_handler = segfault_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    sigaction(SIGSEGV, &sa, NULL);
-}
-
-/* --- tracemacro --- */
-#define TRACE_FUNC() (last_func = __func__)
-
-#define TRACE_POINT(name) do { \
-    last_func = name; \
-    fprintf(stderr, "[TRACE] Reached %s\n", last_func); \
-    fflush(stderr); \
-} while(0)
-
-#define ARG_DRAW_MODE  (100 << 17)
-
 #define min(a,b) ((a) < (b) ? (a) : (b))
-#define FRAME_DELAY_US 65800  // adjust here!
 
-struct timeval tv;
-
-int g, h, i, j, k, l, m, n, p, q, r, v, x, y;
-int o, b, f, u, s, c, a, t, d, C[1<<18], B=4,  H[4];
-int len;
-int screen_height = 200;
-int screen_width = 400;
-
-const int TIME_SCALE = 53300;
-const int INPUT_OFFSET = 65793;
-const int SPEED_SCALE = 100;
-int z=0;		//is_winter
-int w=0;		//is_night
-char P[99];
-unsigned int color_val;
-//test endgame condition
-int laps = -1;
-int max_laps = 2;
-
-int max_speed = 0;
-int race_start_time = 0;
-int lap_start_time = 0;
-int total_time = 0;
-int fastest_lap = 999999;
-int last_lap_time   = 0;
-
-enum GameState {
-    STATE_RACING,
-    STATE_FINISHED
-};
-int game_state = STATE_RACING;
-//
-//scaletest
-#define SCALE 2
-
-#define INTERNAL_WIDTH  400
+#define FRAME_DELAY_US  65800   /* same frame time as the original, about 15 fps */
+#define INTERNAL_WIDTH  400     /* the game always draws at 400x200 */
 #define INTERNAL_HEIGHT 200
+#define DEFAULT_SCALE   2       /* initial window: 800x400 */
+#define C_SIZE          (1 << 18)
+#define MAX_LAPS        2
 
-int window_width  = INTERNAL_WIDTH  * SCALE;
-int window_height = INTERNAL_HEIGHT * SCALE;
+/*
+ * The original single-letter globals. Most of them are reused for
+ * different purposes in different parts of a frame, so they are kept
+ * as they are. Some that have a fixed meaning:
+ *   u  distance along the track      p  track length (10660)
+ *   s  speed                         t  sideways position on the road
+ *   j  steering                      c  time at which the current lap started
+ *   h  current lap time (between time_trigger() and draw_HID())
+ *   q  best lap time                 B  track number at start, later reused
+ *                                       as the opponent's lane offset
+ *   C  track curve C[0..p], track height C[p..2p], key states C[INPUT_OFFSET+key]
+ */
+int g, h, i, j, k, l, m, n, p, q, r, v, x, y;
+int o, b, f, u, s, c, a, t, d, C[C_SIZE], B = 4;
 
-Display* display;
-Window window;
-Pixmap pixmap;
-GC gc;
-XEvent event;
+int screen_height = INTERNAL_HEIGHT;
+int screen_width  = INTERNAL_WIDTH;
 
-unsigned int color_component(int a, int argc, int y, int v, int z, int w) {
+const int TIME_SCALE   = 53300;   /* also 0x00D034, the green grass colour */
+const int INPUT_OFFSET = 65793;   /* 0x010101: key-state offset in C[], and a grey multiplier */
+const int SPEED_SCALE  = 100;
+
+int z = 0;   /* is_winter */
+int w = 0;   /* is_night  */
+
+/* Race state */
+enum GameState { STATE_RACING, STATE_FINISHED };
+int game_state = STATE_RACING;
+int laps       = -1;   /* -1 until the start line has been crossed the first time */
+int total_time = 0;    /* sum of the completed lap times, in 1/100 s */
+int max_speed  = 0;
+int running    = 1;
+
+/* X11 */
+Display *display;
+Window   window;
+Pixmap   pixmap;
+GC       gc;
+XEvent   event;
+Atom     wm_delete_window, net_wm_state, net_wm_state_fullscreen;
+int      window_width  = INTERNAL_WIDTH  * DEFAULT_SCALE;
+int      window_height = INTERNAL_HEIGHT * DEFAULT_SCALE;
+int      fullscreen    = 0;
+
+static struct timeval program_start;
+
+/* ------------------------------------------------------------------ */
+/* Time                                                                */
+/* ------------------------------------------------------------------ */
+
+static long long now_us(void)
+{
+    struct timeval tv;
+    gettimeofday(&tv, 0);
+    return (long long)(tv.tv_sec - program_start.tv_sec) * 1000000LL
+         + (tv.tv_usec - program_start.tv_usec);
+}
+
+/* Game clock in 1/100 s since program start.
+ * (The original used 100*seconds + microseconds/10660, so its
+ * "hundredths" only ran from 0 to 93, and the value overflowed int.) */
+static int clock_ticks(void)
+{
+    return (int)(now_us() / 10000);
+}
+
+/* Current lap time */
+static void time_trigger(void)
+{
+    h = clock_ticks() - c;
+}
+
+/* Keeps the original pace (one frame every FRAME_DELAY_US) even when
+ * scaling to a large window takes part of the frame time. */
+static void wait_for_next_frame(void)
+{
+    static long long next_frame = 0;
+    long long now = now_us();
+
+    if (next_frame == 0 || now > next_frame + FRAME_DELAY_US)
+        next_frame = now;              /* first frame, or far behind */
+    next_frame += FRAME_DELAY_US;
+    if (next_frame > now)
+        usleep((useconds_t)(next_frame - now));
+}
+
+/* ------------------------------------------------------------------ */
+/* Drawing primitives                                                  */
+/* ------------------------------------------------------------------ */
+
+unsigned int color_component(int a, int argc, int y, int v, int z, int w)
+{
     int temp = (((y / v) * !w) +
                ((((argc + 1) >> a) & 255) * (screen_height + y / (z | (w - 2))) / screen_height));
     return temp << a;
 }
 
-int draw_mode_setcolors(int argc) {
-	
-	color_val =  color_component(0, argc, y, v, z, w) |
-			color_component(8, argc, y, v, z, w) |
-			color_component(16, argc, y, v, z, w);
-  
+/* The renderer of the original: set a colour and draw two mirrored
+ * horizontal line segments on row o, from m to n either side of the
+ * centre (screen_height + l). */
+void draw_mode_setcolors(int value)
+{
+    unsigned int color_val = color_component(0, value, y, v, z, w) |
+                             color_component(8, value, y, v, z, w) |
+                             color_component(16, value, y, v, z, w);
+
     XSetForeground(display, gc, color_val);
-    
+
     int center_x = screen_height + l;
-	XDrawLine(display, pixmap, gc,
-		center_x - m, o,
-        center_x - n, o);
-
-	XDrawLine(display, pixmap, gc,
-        center_x + m, o,
-        center_x + n, o);
-    
-	//gettimeofday((struct timeval*)H, 0); // Record timestamp
-    return 0;
+    XDrawLine(display, pixmap, gc, center_x - m, o, center_x - n, o);
+    XDrawLine(display, pixmap, gc, center_x + m, o, center_x + n, o);
 }
 
-//banner test
-void draw_finish_banner() {
+/* ------------------------------------------------------------------ */
+/* Scaling the 400x200 picture to the window                           */
+/* ------------------------------------------------------------------ */
 
-    char buffer[256];
+static XImage *frame_src;      /* copy of the 400x200 pixmap */
+static XImage *frame_dst;      /* window-sized image */
+static int    *x_map;          /* destination column -> source column */
+static int     dst_x, dst_y, dst_w, dst_h;   /* where the picture goes in the window */
 
-    // Dark overlay effect (simple full-screen rectangle)
-    XSetForeground(display, gc, 0x000000);
-    XFillRectangle(display, pixmap, gc,
-                   0, 0,
-                   INTERNAL_WIDTH,
-                   INTERNAL_HEIGHT);
+static void rebuild_scaled_image(void)
+{
+    int scr = DefaultScreen(display);
 
-    XSetForeground(display, gc, 0xFFFFFF);
+    if (frame_dst)
+        XDestroyImage(frame_dst);      /* also frees its pixel data */
+    free(x_map);
+    frame_dst = NULL;
+    x_map = NULL;
 
-    int y = 60;
+    /* Largest 2:1 rectangle that fits, centred */
+    if (window_width * INTERNAL_HEIGHT <= window_height * INTERNAL_WIDTH) {
+        dst_w = window_width;
+        dst_h = window_width * INTERNAL_HEIGHT / INTERNAL_WIDTH;
+    } else {
+        dst_h = window_height;
+        dst_w = window_height * INTERNAL_WIDTH / INTERNAL_HEIGHT;
+    }
+    if (dst_w < 1 || dst_h < 1)
+        return;
+    dst_x = (window_width  - dst_w) / 2;
+    dst_y = (window_height - dst_h) / 2;
 
-    XDrawString(display, pixmap, gc,
-                120, y,
-                "=== RACE FINISHED ===",
-                strlen("=== RACE FINISHED ==="));
-
-    y += 30;
-	
-    snprintf(buffer, sizeof(buffer),
-             "Total Time: %d'%02d\"%02d",
-             total_time / 100 / 60,
-             total_time / 100 % 60,
-             total_time % 100);
-
-    XDrawString(display, pixmap, gc, 100, y, buffer, strlen(buffer));
-
-    y += 25;
-
-    snprintf(buffer, sizeof(buffer),
-             "Fastest Lap: %d'%02d\"%02d",
-             fastest_lap / 100 / 60,
-             fastest_lap / 100 % 60,
-             fastest_lap % 100);
-
-    XDrawString(display, pixmap, gc, 100, y, buffer, strlen(buffer));
-
-    y += 25;
-
-    snprintf(buffer, sizeof(buffer),
-             "Max Speed: %d mph",
-             max_speed);
-
-    XDrawString(display, pixmap, gc, 100, y, buffer, strlen(buffer));
-
-    y += 40;
-
-    XDrawString(display, pixmap, gc,
-                80, y,
-                "Press R to Restart or ESC to Exit",
-                strlen("Press R to Restart or ESC to Exit"));
-}
-
-int time_trigger () {
-	gettimeofday(&tv, 0);
-	H[0] = tv.tv_sec;  // seconds
-	H[1] = tv.tv_usec;  // microseconds
-	h = SPEED_SCALE * H[0] + H[1] / p - c;
-	return h;
-}
-
-void reset_game() {
-
-    laps = 0;
-    max_speed = 0;
-    fastest_lap = 999999;
-    total_time = 0;
-    lap_start_time = 0;
-	u = 0;
-	s = 0;
-    
-    C[INPUT_OFFSET + XK_Up] = 0;
-	C[INPUT_OFFSET + XK_Left] = 0;
-	C[INPUT_OFFSET + XK_Right] = 0;
-	C[INPUT_OFFSET + XK_space] = 0;
-
-    game_state = STATE_RACING;
-}
-//scale test
-void draw_mode_copy_to_screen() {
-
-    // Get image from internal pixmap (400x200)
-    XImage *src = XGetImage(display,
-                            pixmap,
-                            0, 0,
-                            INTERNAL_WIDTH,
-                            INTERNAL_HEIGHT,
-                            AllPlanes,
-                            ZPixmap);
-
-    if (!src) return;
-
-    // Create scaled image
-    XImage *scaled = XCreateImage(display,
-                                  DefaultVisual(display, 0),
-                                  DefaultDepth(display, 0),
-                                  ZPixmap,
-                                  0,
-                                  malloc(window_width * window_height * 4),
-                                  window_width,
-                                  window_height,
-                                  32,
-                                  0);
-
-    if (!scaled) {
-        XDestroyImage(src);
+    frame_dst = XCreateImage(display, DefaultVisual(display, scr), DefaultDepth(display, scr),
+                             ZPixmap, 0, NULL, window_width, window_height, 32, 0);
+    if (!frame_dst)
+        return;
+    /* calloc: the borders stay 0, which is black on normal TrueColor displays */
+    frame_dst->data = calloc((size_t)frame_dst->bytes_per_line, (size_t)window_height);
+    x_map = malloc(sizeof(int) * (size_t)dst_w);
+    if (!frame_dst->data || !x_map) {
+        XDestroyImage(frame_dst);
+        frame_dst = NULL;
         return;
     }
+    for (int xx = 0; xx < dst_w; xx++)
+        x_map[xx] = xx * INTERNAL_WIDTH / dst_w;
+}
 
-    // Nearest neighbor scaling
-    int y;
-    for (y = 0; y < window_height; y++) {
-		int x;
-        for (x = 0; x < window_width; x++) {
+static void present_frame(void)
+{
+    if (!frame_src)
+        frame_src = XGetImage(display, pixmap, 0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT,
+                              AllPlanes, ZPixmap);
+    else
+        XGetSubImage(display, pixmap, 0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT,
+                     AllPlanes, ZPixmap, frame_src, 0, 0);
+    if (!frame_src || window_width < 1 || window_height < 1)
+        return;
 
-            int src_x = x / SCALE;
-            int src_y = y / SCALE;
+    if (!frame_dst || frame_dst->width != window_width || frame_dst->height != window_height)
+        rebuild_scaled_image();
+    if (!frame_dst)
+        return;
 
-            unsigned long pixel =
-                XGetPixel(src, src_x, src_y);
-
-            XPutPixel(scaled, x, y, pixel);
+    /* Nearest-neighbour scaling. Fast path for the usual 32 bits per pixel. */
+    if (frame_src->bits_per_pixel == 32 && frame_dst->bits_per_pixel == 32 &&
+        frame_src->byte_order == frame_dst->byte_order) {
+        int prev_sy = -1;
+        uint32_t *prev_row = NULL;
+        for (int yy = 0; yy < dst_h; yy++) {
+            int sy = yy * INTERNAL_HEIGHT / dst_h;
+            uint32_t *drow = (uint32_t *)(frame_dst->data +
+                             (size_t)(dst_y + yy) * frame_dst->bytes_per_line) + dst_x;
+            if (sy == prev_sy) {
+                memcpy(drow, prev_row, sizeof(uint32_t) * (size_t)dst_w);
+            } else {
+                const uint32_t *srow = (const uint32_t *)(frame_src->data +
+                                       (size_t)sy * frame_src->bytes_per_line);
+                for (int xx = 0; xx < dst_w; xx++)
+                    drow[xx] = srow[x_map[xx]];
+            }
+            prev_sy = sy;
+            prev_row = drow;
+        }
+    } else {
+        for (int yy = 0; yy < dst_h; yy++) {
+            int sy = yy * INTERNAL_HEIGHT / dst_h;
+            for (int xx = 0; xx < dst_w; xx++)
+                XPutPixel(frame_dst, dst_x + xx, dst_y + yy, XGetPixel(frame_src, x_map[xx], sy));
         }
     }
 
-    // Blit scaled image to window
-    XPutImage(display,
-              window,
-              gc,
-              scaled,
-              0, 0,
-              0, 0,
-              window_width,
-              window_height);
-
+    XPutImage(display, window, gc, frame_dst, 0, 0, 0, 0, window_width, window_height);
     XFlush(display);
-
-    // Cleanup
-    XDestroyImage(src);
-    XDestroyImage(scaled);
-
-    usleep(FRAME_DELAY_US);
 }
 
-void draw_mountains() {
+/* ------------------------------------------------------------------ */
+/* Scenery                                                             */
+/* ------------------------------------------------------------------ */
+
+void draw_mountains(void)
+{
     m = n = screen_height;
     f -= SPEED_SCALE;
     o = 30 + 9 * i++;
     n -= 2;
     m += 3;
     l = f / 0.7;
-    int color_value = y * INPUT_OFFSET + SPEED_SCALE - i * k;
-    draw_mode_setcolors(color_value);
+    draw_mode_setcolors(y * INPUT_OFFSET + SPEED_SCALE - i * k);
 }
 
-void draw_sun() {
+void draw_sun(void)
+{
     f = l = C[u] / -2 - t;
     k += 17 * w;
     o = k++ + 20;
     n = k + k - k * k / 9;
-    int color_value = INPUT_OFFSET * p;
-    draw_mode_setcolors(color_value);
+    draw_mode_setcolors(INPUT_OFFSET * p);
 }
 
-void draw_sky() {
+void draw_sky(void)
+{
     y = 135;
-    int color_value = SPEED_SCALE * INPUT_OFFSET | screen_height;
-    draw_mode_setcolors(color_value);
+    draw_mode_setcolors(SPEED_SCALE * INPUT_OFFSET | screen_height);
 }
 
-void draw_background_timing() {
-    int color_value = 0;
-    draw_mode_setcolors(color_value);
+void draw_background_timing(void)
+{
+    draw_mode_setcolors(0);
 }
 
-void draw_grass() {	//draw grass
-	 n = 2 * screen_width;
-     if (z) {
-		// If winter mode/night mode (or what 'z' represents)
-		draw_mode_setcolors(r + k * INPUT_OFFSET * 8);
-	} else {
-		// Normal condition
-		draw_mode_setcolors(TIME_SCALE - k * SPEED_SCALE * SPEED_SCALE);
-	}    
-}
-	
-void draw_side_stripes() {	//draw road side stribes red/white alternating
-	n = 9 + x / screen_height;
-    if ((!k + z)) {	//the white stripe on road side
-		r = screen_height * INPUT_OFFSET + 9;
-		draw_mode_setcolors(r);
-	} else {	//the red strips on road side
-		draw_mode_setcolors(13107200); // original: "SPEED_SCALE << 17"
-	}
+void draw_grass(void)
+{
+    n = 2 * screen_width;
+    if (z)
+        draw_mode_setcolors(r + k * INPUT_OFFSET * 8);                   /* snow */
+    else
+        draw_mode_setcolors(TIME_SCALE - k * SPEED_SCALE * SPEED_SCALE); /* grass */
 }
 
-void draw_road_color() {	// draw road color and startline
-	n -= x / (9 * screen_height);
+void draw_side_stripes(void)   /* red/white alternating road edge */
+{
+    n = 9 + x / screen_height;
+    if (!k + z) {
+        r = screen_height * INPUT_OFFSET + 9;   /* white */
+        draw_mode_setcolors(r);
+    } else {
+        draw_mode_setcolors(SPEED_SCALE << 17); /* red */
+    }
+}
+
+void draw_road_color(void)     /* road surface and start line */
+{
+    n -= x / (9 * screen_height);
     if (i % p > 6) {
-		h = r * (3 + z) / 5;
-		draw_mode_setcolors(h);
-		//draw_mode_setcolors(3070); // deepblue
-	} else {
-		draw_mode_setcolors(r);
-		//draw_mode_setcolors(13107200); // red
-	}
-  
+        h = r * (3 + z) / 5;
+        draw_mode_setcolors(h);
+    } else {
+        draw_mode_setcolors(r);
+    }
 }
 
-void draw_center_line() {	// draw midt strips on road
-	n = x / (13 * screen_width);
-	if (k) {
-		draw_mode_setcolors(h);
-		//draw_mode_setcolors(53300); // Green
-	} else {
-		draw_mode_setcolors(r);
-		//draw_mode_setcolors(6579436); // Violet
-	}
+void draw_center_line(void)
+{
+    n = x / (13 * screen_width);
+    draw_mode_setcolors(k ? h : r);
 }
 
-void draw_HID() {	// draw timer
-    // draw status text
-    int high = 0;
-    if (laps > 0)	//fix initial wrong high time
-		high = q;
-		
-   // printf("[DBG] high=%d, labs=%d\n",high, laps);
-    
-    len = snprintf(P, sizeof(P),
+void draw_HID(void)            /* status line */
+{
+    char text[99];
+    int high = laps > 0 ? q : 0;   /* no best time before the first full lap */
+
+    int len = snprintf(text, sizeof(text),
         "Time: %1d'%02d\"%02d      High: %1d'%02d\"%02d      Speed: %03dmph",
         h / 100 / 60, h / 100 % 60, h % 100,
         high / 100 / 60, high / 100 % 60, high % 100,
-        s
-    );
-    
-    XDrawString(display, pixmap, gc, 30, x, P, len);
-    fastest_lap = high;
+        s);
+    XDrawString(display, pixmap, gc, 30, x, text, len);
 }
 
-void draw_snow() {	// draw snow
-	x = h;  // startvalue for calculation
+void draw_snow(void)
+{
+    x = h;   /* start value for the pseudo-random flake positions */
     f = 0;
     while (++f < 2 * z * screen_width) {
         x *= 3;
         l = x % screen_width;
         o = (x * x) % a;
-        draw_mode_setcolors(-2); // Trigger snow in winter mode
-    }	
+        draw_mode_setcolors(-2);   /* white */
+    }
 }
 
-int main(int argc, char** argv) {
-
-install_segfault_handler();
-
-if ( argc > 2) {
-	printf("Usage: %s ['a']['d'][#]\n"
-           "  a\tAdvanced racing in a winter landscape.\n"
-           "  d\tRacing in at night in the dark.\n"
-           "  #\tRace track selection 1-3 are valid numbers\n",
-           argv[0]);
-    return 0;
-} else if ( argc == 2 ) {
-	z = (strchr(argv[1], 'a') != NULL);	//is_winter
-	w = (strchr(argv[1], 'd') != NULL);	//is_night
-	if (strchr(argv[1], '1')) {	//track_number B=4 is default			
-		B = 3;
-	} else if (strchr(argv[1], '2')) {
-		B = 2;
-	}
+static void draw_text(int px, int py, const char *str)
+{
+    XDrawString(display, pixmap, gc, px, py, str, (int)strlen(str));
 }
-p = 10660;
 
-display = XOpenDisplay (0);
+void draw_finish_banner(void)
+{
+    char buffer[64];
+    int line_y = 60;
 
-window = XCreateSimpleWindow (display, RootWindow(display, 0), 0, 0,  window_width, window_height, 0, 0, 0);
-gc = XCreateGC (display, window, 0, 0);
-	
-XStoreName(display, window, argv[0]);
-XSetIconName(display, window, argv[0]);
-// Input events listen for key press/release  
-XSelectInput (display, window, KeyPressMask | KeyReleaseMask);
-// Make the window visible
-XMapWindow (display, window);
-// Create a pixmap (offscreen drawing area)
-pixmap = XCreatePixmap (display, window, INTERNAL_WIDTH, d = INTERNAL_HEIGHT, DefaultDepth(display, 0));
+    XSetForeground(display, gc, 0x000000);
+    XFillRectangle(display, pixmap, gc, 0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+    XSetForeground(display, gc, 0xFFFFFF);
 
-int running = 1;
+    draw_text(120, line_y, "=== RACE FINISHED ===");
+    line_y += 30;
 
-while (running) {
+    snprintf(buffer, sizeof(buffer), "Total Time:  %d'%02d\"%02d",
+             total_time / 100 / 60, total_time / 100 % 60, total_time % 100);
+    draw_text(100, line_y, buffer);
+    line_y += 25;
 
-race_start_time = h;
-lap_start_time = h;
+    snprintf(buffer, sizeof(buffer), "Fastest Lap: %d'%02d\"%02d",
+             q / 100 / 60, q / 100 % 60, q % 100);
+    draw_text(100, line_y, buffer);
+    line_y += 25;
 
-if (game_state == STATE_RACING) {
-    while (1) {
-        // Step 1: count and check if zero game timers
-        r++;
-        if (r == p) {  // if r reach TIME_LIMIT/p
-            u = h = q = TIME_SCALE;  // zero timers
+    snprintf(buffer, sizeof(buffer), "Max Speed:   %d mph", max_speed);
+    draw_text(100, line_y, buffer);
+    line_y += 40;
+
+    draw_text(70, line_y, "R = new race   F = full screen   ESC = quit");
+}
+
+/* ------------------------------------------------------------------ */
+/* Game control                                                        */
+/* ------------------------------------------------------------------ */
+
+void reset_game(void)
+{
+    laps       = 0;            /* u = 0 is the start line, so the next crossing is a full lap */
+    total_time = 0;
+    max_speed  = 0;
+    q = TIME_SCALE;            /* "no best lap yet" */
+    u = 0;
+    s = 0;
+    j = 0;
+    t = 0;
+    c = clock_ticks();         /* restart the lap clock */
+
+    C[INPUT_OFFSET + XK_Up]    = 0;
+    C[INPUT_OFFSET + XK_Left]  = 0;
+    C[INPUT_OFFSET + XK_Right] = 0;
+
+    game_state = STATE_RACING;
+}
+
+static void set_fullscreen(int on)
+{
+    XEvent e;
+    memset(&e, 0, sizeof(e));
+    e.xclient.type         = ClientMessage;
+    e.xclient.window       = window;
+    e.xclient.message_type = net_wm_state;
+    e.xclient.format       = 32;
+    e.xclient.data.l[0]    = on ? 1 : 0;     /* _NET_WM_STATE_ADD / _REMOVE */
+    e.xclient.data.l[1]    = (long)net_wm_state_fullscreen;
+    e.xclient.data.l[3]    = 1;              /* request from a normal application */
+    XSendEvent(display, DefaultRootWindow(display), False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &e);
+    XFlush(display);
+    fullscreen = on;
+}
+
+static void handle_event(XEvent *ev)
+{
+    switch (ev->type) {
+    case ConfigureNotify:
+        window_width  = ev->xconfigure.width;
+        window_height = ev->xconfigure.height;
+        break;
+
+    case ClientMessage:   /* window close button */
+        if ((Atom)ev->xclient.data.l[0] == wm_delete_window)
+            running = 0;
+        break;
+
+    case KeyPress:
+    case KeyRelease: {
+        KeySym key  = XLookupKeysym(&ev->xkey, 0);
+        int pressed = (ev->type == KeyPress);
+        long idx    = (long)INPUT_OFFSET + (long)key;
+        int was_down = 0;
+
+        /* Keys with large keysym values (e.g. media keys) fall outside C[] */
+        if (idx >= 0 && idx < C_SIZE) {
+            was_down = C[idx];
+            C[idx] = pressed;
         }
-        // Step 2: Pre-game setup, track generation
-        else if (r < p) {
-            // determine startline graphic pattern (0..5)
-            a = (r / screen_height) % 6;
-            // Pre-generate track segment
-            r[C + p] = (l += (!a || a % 2) ? g : a - 3) / 4;
-            // more track/logic based on track number B
-            if (2 * r <= p) {
+        if (!pressed || was_down)      /* act once per key press, not on auto-repeat */
+            break;
+
+        if (key == XK_Escape)
+            running = 0;
+        else if (key == XK_f || key == XK_F11)
+            set_fullscreen(!fullscreen);
+        else if (key == XK_r && game_state == STATE_FINISHED)
+            reset_game();
+        break;
+    }
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* One frame of racing                                                 */
+/* ------------------------------------------------------------------ */
+
+void race_frame(void)
+{
+    /* --- track generation (first frame only) and event polling --- */
+    while (1) {
+        r++;
+        if (r == p) {
+            /* Track finished. u is set past the finish line, so the first
+             * frame "crosses" it, which starts the clock (as in the original). */
+            u = h = q = TIME_SCALE;
+        } else if (r < p) {
+            a = (r / screen_height) % 6;                   /* start line pattern */
+            r[C + p] = (l += (!a || a % 2) ? g : a - 3) / 4; /* hills */
+            if (2 * r <= p) {                              /* curves, depend on track B */
                 i -= ((i + 34 && r / 149 % B) - (i - 34 && r / 353 % 3));
                 n += i;
                 r[C] = n / 55;
             } else {
-                r[C] = C[p - r];
+                r[C] = C[p - r];                           /* second half mirrors the first */
             }
-            // adjust speed/visual effect based on winter/normal mode
-            v = 4 - 3 * z;
-        }
-        // Step 3: Event polling
-        else {
-            if (XPending(display)) {
-                XNextEvent(display, &event);
-
-                int key = XLookupKeysym(&event.xkey, 0);
-                if (key == XK_Escape) {
-					//dump_logged_colors();
-                    exit(0); // could later be changed to running = 0
-                } else {	//below prevents rare segfaults 
-						int idx = INPUT_OFFSET + key;
-						if (idx >= 0 && idx < (1<<18)) {
-							C[idx] = (event.type == KeyPress);
-						} else {
-							printf("[WARN] Invalid key=%d idx=%d (ignored)\n", key, idx);
-						}
-                }
-            } else {
-                // no events, break loop2
+            v = 4 - 3 * z;                                 /* steering response, less in winter */
+        } else {
+            if (!XPending(display))
                 break;
-            }
+            XNextEvent(display, &event);
+            handle_event(&event);
         }
-    } // end while(1)
+    }
+    if (!running || game_state != STATE_RACING)
+        return;
 
-    // --- read input ---
+    /* --- steering --- */
     int steer = C[INPUT_OFFSET + XK_Right] - C[INPUT_OFFSET + XK_Left];
-    // --- update stearing ---
     if (steer != 0) {
-        if (j * steer < 8) j += v * steer;
+        if (j * steer < 8)
+            j += v * steer;
     } else {
         j *= 0.9;
     }
-    // --- update acceleration / distance ---
-    int accel = C[INPUT_OFFSET + XK_Up] * 3;   // 3 if arrow_up, otherwise 0
-    int decel = !!s;                            // 1 if s > 0, otherwise 0
+
+    /* --- speed and distance --- */
+    int accel = C[INPUT_OFFSET + XK_Up] * 3;
+    int decel = !!s;
     int new_s = accel + s - decel;
-    if (new_s > 300) new_s = 300;	//set max speed by changing a to number
+    if (new_s > a)       /* top speed: a is 163 here, left over from drawing the player's car */
+        new_s = a;
     s = new_s;
-    //winner banner test
     if (s > max_speed)
-    max_speed = s;
-    //
+        max_speed = s;
     u += s / 9;
-    // --- update rounds and reset if passing goalline...
-    if (u > p) {	//u = distance along track, p = track length, h = current time, q = best time
-		//endgame test
-		laps++;
-		printf("[endgame test] laps=%d\n", laps);
-		total_time = total_time + h - 53300;		
-		printf("[endgame test] total_time=%d\n", total_time);
-		if (laps >= max_laps) {
-			game_state = STATE_FINISHED;
-		}
-		
-        if (h < q) q = h;     // save best time
-        
-        u %= p;               // Wrap distance
-        u = 0;                // zero distance
-        c = 0;                // zero rounds
-        gettimeofday((struct timeval*)H, 0);  
-        c = SPEED_SCALE * *H + 1[H] / p - c;
+
+    /* --- crossing the finish line --- */
+    if (u > p) {
+        int now = clock_ticks();
+        if (laps >= 0) {                /* laps == -1: this is the start, not a lap */
+            int lap_time = now - c;
+            total_time += lap_time;
+            if (lap_time < q)
+                q = lap_time;           /* best lap */
+        }
+        laps++;
+        if (laps >= MAX_LAPS)
+            game_state = STATE_FINISHED;
+        u %= p;
+        c = now;                        /* next lap starts now */
     }
-    // --- update position / offset ---
+
+    /* --- sideways position: steering and the pull in curves --- */
     t += j * (s + SPEED_SCALE) / screen_width;
-    if (i != 0) {  // protect against division with 0
+    if (i != 0)
         t -= (s / i) * (C[u + 4] - C[u]);
-    }
-    // --- adjust speed depending of position ---
+
+    /* --- off the road, or hitting the opponent --- */
     if ((t * t) > p) {
-        t *= 0.97;  // Reduce stearing/position for stability
-        s *= 0.8;   // reduce speed 
+        t *= 0.97;
+        s *= 0.8;
     } else if (g > a && (b * b) < (screen_height * 9)) {
-        s = i;      // set speed (often 0 at start)
+        s = i;                          /* collision: speed drops to i (60) */
     }
-    // --- zero stearing and road parameters
+
+    /* --- sky, sun and mountains --- */
     i = 0; k = 0; l = 0;
-    // --- screen coordinates ---
     o = screen_width;
     n = screen_width;
-    // --- drawing / color-loop ---
     while (i < 5) {
-        if (k / 17) {                 // draw mountains
+        if (k / 17) {
             if (o++ == y) {
                 draw_mountains();
             } else {
                 n -= 2;
                 m += 3;
                 l = f / 0.7;
-                int color_value = y * INPUT_OFFSET + SPEED_SCALE - i * k;
-                draw_mode_setcolors(color_value);
+                draw_mode_setcolors(y * INPUT_OFFSET + SPEED_SCALE - i * k);
             }
+        } else if (k | !o) {
+            draw_sun();
+        } else if (o-- < a) {
+            draw_sky();
         } else {
-            if (k | !o) {             // draw sun
-                draw_sun();
-            } else {	
-                if (o-- < a) {        // draw sky
-                    draw_sky();
-                } else {              // background color for timer
-                    draw_background_timing();
-                }
-            }
+            draw_background_timing();
         }
-    }	
+    }
 
-    // initialising (earlier for-loops first section)
+    /* --- road, stripes and grass, from the horizon down --- */
     x = 0; g = 0; m = 0; f = 0;
     a = i = u + screen_height;
     d += 9;
-    // condition is that we stop when <= u
     while (1) {
         if (o < f) {
-            draw_grass(); // draw grass
-            draw_side_stripes(); //draw road side stribes red/white alternating
-            draw_road_color(); // draw road color and startline
-            draw_center_line(); // draw midt strips on road
+            draw_grass();
+            draw_side_stripes();
+            draw_road_color();
+            draw_center_line();
             o++;
         } else {
-            // opdating frequense when o >= f
             f = x / screen_height + 70 + C[i + p] - C[u + p];
             o = x ? o : f;
             k = (2 * i / 41) % 2;
             l = C[--i] - C[u] - t;
             x += screen_height - (y = i - u);
-            // calculate g (maybe update g/b/a)
-            if (!((d - i) % 410)) {
+            if (!((d - i) % 410)) {     /* the opponent's position on the road */
                 a = o;
                 b = l + B * x / screen_width;
                 g = x / SPEED_SCALE;
             }
-            if (i <= u) {
-                break; // Stop loop
-            }
+            if (i <= u)
+                break;
         }
     }
 
+    /* --- the two cars --- */
     k = i = 0; x = g; l = b;
     while (1) {
-        // Condition-logic
         if (++i == 41 + !f && k) {
-            f = k = i = l = 0;
+            f = k = i = l = 0;          /* switch to the player's car */
             x = 190;
             a = 163;
         } else if (i == 42) {
             i = 9;
             k = r;
         } else if (!k || (i - 41)) {
-            // continue
+            /* continue */
         } else {
-            break; // exit loop
+            break;
         }
         n = (min(min(min(75, SPEED_SCALE - i) / 3, 95 - 2 * i), r - k + 2 * i) - k / r) * x / screen_height;
-        if (i < 9) {
+        if (i < 9)
             m = x * 14 / screen_height;
-        } else if (k) {
-            m = ((i - 31) / 5 * (i % 12)) ? 0 : n - 1;
-        } else {
+        else if (k)
+            m = ((i - 31) / 5 * (i % 12) != 0) ? 0 : n - 1;
+        else
             m = 0;
-        }
         o = a - i * x / screen_height;
         y = screen_height - o;
         h = (k * r + k * f / INPUT_OFFSET);
-		draw_mode_setcolors(h); // colors of cars
-        h = (k * r + k * f / INPUT_OFFSET);
-    }	
-   
-    time_trigger();
-
-    // B depends on g and can only be -1, 0 or 1
-    B = g ? B : 1 - h % 3;
-
-    y = n = m;         // initialize y, n, m to same value
-   
-	draw_HID();
-	
-	draw_snow();
-
-    //end previos loop6 code
-	draw_mode_copy_to_screen();
-	}
-	else if (game_state == STATE_FINISHED) {
-        draw_finish_banner();
-        draw_mode_copy_to_screen();
-
-        while (XPending(display)) {
-            XNextEvent(display, &event);
-            int key = XLookupKeysym(&event.xkey, 0);
-
-            if (key == XK_Escape) {
-                running = 0;
-            }
-            else if (key == XK_r || key == XK_R) {
-                reset_game();
-            }
-        }
-
-        usleep(FRAME_DELAY_US);
-        continue;
+        draw_mode_setcolors(h);
     }
+
+    /* --- status line and snow --- */
+    time_trigger();
+    B = g ? B : 1 - h % 3;   /* opponent lane offset: -1, 0 or 1 */
+    i = 60;                  /* as in the original: used as divisor in the curve pull next frame */
+    y = n = m;
+    draw_HID();
+    draw_snow();
 }
-	return 0;
+
+void finish_frame(void)
+{
+    while (XPending(display)) {
+        XNextEvent(display, &event);
+        handle_event(&event);
+    }
+    if (game_state == STATE_FINISHED)
+        draw_finish_banner();
+}
+
+/* ------------------------------------------------------------------ */
+
+static void usage(const char *prog)
+{
+    printf("Usage: %s [options]\n"
+           "  Options are letters in one word, e.g. \"ad2\":\n"
+           "  a\twinter landscape (snow, slippery road)\n"
+           "  d\tracing at night\n"
+           "  1-3\ttrack selection (3 is the default)\n"
+           "  f\tstart in full screen\n"
+           "Keys: Up = accelerate, Left/Right = steer, F or F11 = full screen,\n"
+           "      ESC = quit, R = new race after the finish\n",
+           prog);
+}
+
+int main(int argc, char **argv)
+{
+    int start_fullscreen = 0;
+
+    if (argc > 2 || (argc == 2 && strspn(argv[1], "ad123f") != strlen(argv[1]))) {
+        usage(argv[0]);
+        return 1;
+    }
+    if (argc == 2) {
+        z = strchr(argv[1], 'a') != NULL;
+        w = strchr(argv[1], 'd') != NULL;
+        start_fullscreen = strchr(argv[1], 'f') != NULL;
+        if (strchr(argv[1], '1'))
+            B = 3;
+        else if (strchr(argv[1], '2'))
+            B = 2;
+    }
+    p = 10660;
+    gettimeofday(&program_start, 0);
+
+    display = XOpenDisplay(0);
+    if (!display) {
+        fprintf(stderr, "%s: cannot open X display\n", argv[0]);
+        return 1;
+    }
+    int scr = DefaultScreen(display);
+
+    window = XCreateSimpleWindow(display, RootWindow(display, scr), 0, 0,
+                                 window_width, window_height, 0,
+                                 BlackPixel(display, scr), BlackPixel(display, scr));
+    gc = XCreateGC(display, window, 0, 0);
+
+    XStoreName(display, window, "vik1 remake");
+    XSetIconName(display, window, "vik1 remake");
+
+    XSizeHints *hints = XAllocSizeHints();
+    if (hints) {
+        hints->flags      = PMinSize;
+        hints->min_width  = INTERNAL_WIDTH;
+        hints->min_height = INTERNAL_HEIGHT;
+        XSetWMNormalHints(display, window, hints);
+        XFree(hints);
+    }
+
+    wm_delete_window        = XInternAtom(display, "WM_DELETE_WINDOW", False);
+    net_wm_state            = XInternAtom(display, "_NET_WM_STATE", False);
+    net_wm_state_fullscreen = XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", False);
+    XSetWMProtocols(display, window, &wm_delete_window, 1);
+
+    if (start_fullscreen) {   /* ask for full screen before the window appears */
+        XChangeProperty(display, window, net_wm_state, XA_ATOM, 32, PropModeReplace,
+                        (unsigned char *)&net_wm_state_fullscreen, 1);
+        fullscreen = 1;
+    }
+
+    /* Held keys send only KeyPress repeats, no fake KeyRelease in between */
+    XkbSetDetectableAutoRepeat(display, True, NULL);
+
+    XSelectInput(display, window, KeyPressMask | KeyReleaseMask | StructureNotifyMask);
+    XMapWindow(display, window);
+
+    pixmap = XCreatePixmap(display, window, INTERNAL_WIDTH, INTERNAL_HEIGHT, DefaultDepth(display, scr));
+    d = INTERNAL_HEIGHT;
+
+    while (running) {
+        if (game_state == STATE_RACING)
+            race_frame();
+        else
+            finish_frame();
+        if (!running)
+            break;
+        present_frame();
+        wait_for_next_frame();
+    }
+
+    if (frame_src) XDestroyImage(frame_src);
+    if (frame_dst) XDestroyImage(frame_dst);
+    free(x_map);
+    XFreePixmap(display, pixmap);
+    XFreeGC(display, gc);
+    XDestroyWindow(display, window);
+    XCloseDisplay(display);
+    return 0;
 }

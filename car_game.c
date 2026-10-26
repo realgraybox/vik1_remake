@@ -10,7 +10,7 @@
 #define ARG_WINTER_MODE (-1)
 
 #define min(a,b) ((a) < (b) ? (a) : (b))
-#define FRAME_DELAY_US 65800 
+#define FRAME_DELAY_US 65800
 
 struct timeval tv;
 
@@ -18,6 +18,8 @@ int g, h, i, j, k, l, m, n, p, q, r, v, x, y;
 int o, b, f, u, s, c, a, t, d, C[1<<18], B=4,  H[4];
 int len;
 int screen_height = 200;
+int screen_width = 400;
+
 const int TIME_SCALE = 53300;
 const int INPUT_OFFSET = 65793;
 const int SPEED_SCALE = 100;
@@ -34,29 +36,24 @@ XEvent event;
 
 #include <stdbool.h>
 
-#define MAX_LOGGED_COLORS 1024  // Adjust if there are many colors
+#define MAX_LOGGED_COLORS 1024
 static int logged_colors[MAX_LOGGED_COLORS];
 static int logged_color_count = 0;
-static bool log_colors_enabled = false; // Toggle color log on/off
+static bool log_colors_enabled = true;
 
-
-// Helper function for logging unique colors
 static void log_color(int color) {
     if (!log_colors_enabled) return;
 
-    // Check if the color is already logged
     int i;
     for (i = 0; i < logged_color_count; i++) {
         if (logged_colors[i] == color) return;
     }
 
-    // Save new color
     if (logged_color_count < MAX_LOGGED_COLORS) {
         logged_colors[logged_color_count++] = color;
     }
 }
 
-// Print all colors to the console
 static void dump_logged_colors(void) {
     printf("\n[DEBUG] Colors used in this session:\n");
     int i;
@@ -72,19 +69,15 @@ unsigned int color_component(int a, int argc, int y, int v, int z, int w) {
     return temp << a;
 }
 
-
 int draw_mode_setcolors(int argc) {
+	log_color(argc);
 	
 	color_val =  color_component(0, argc, y, v, z, w) |
 			color_component(8, argc, y, v, z, w) |
 			color_component(16, argc, y, v, z, w);
-	
-         
+  
     XSetForeground(display, gc, color_val);
-    /*        Left line             Mid              Right line
-	x = ...|--------[m---n]--------| center |--------[m---n]--------|...
-	y = o
-	*/
+    
     int center_x = screen_height + l;
 	XDrawLine(display, pixmap, gc,
 		center_x - m, o,
@@ -101,7 +94,7 @@ int draw_mode_setcolors(int argc) {
 void draw_mode_copy_to_screen() {
 	printf("[DEBUG draw_mode_copy_to_screen]\n");	
 	// Copy drawn area to screen
-	XCopyArea(display, pixmap, window, gc, 0, 0, 2 * screen_height, screen_height, 0, 0);
+	XCopyArea(display, pixmap, window, gc, 0, 0, screen_width, screen_height, 0, 0);
 	XSync(display, 0);
 	XFlush(display);
 	usleep(FRAME_DELAY_US);  // sleep time (FPS) in milliseconds
@@ -110,41 +103,24 @@ void draw_mode_copy_to_screen() {
 
 int time_trigger () {
 	gettimeofday(&tv, 0);
-	H[0] = tv.tv_sec;  
-	H[1] = tv.tv_usec; 
+	H[0] = tv.tv_sec;
+	H[1] = tv.tv_usec;
 	h = SPEED_SCALE * H[0] + H[1] / p - c;
 	return h;
 }
 
-int reset_current_lap (int argc) {
-	printf("[DEBUG reset_current_lap]\n");
-	argc=0;
-	u=0; 
-	c=0;
-	gettimeofday((struct timeval*)H, 0); // Record timestamp
-	return SPEED_SCALE * *H + 1[H]/p - c;
-}
 
 void loop2(void) {
     printf("[DEBUG enters loop2]\n");
 
     while (1) {
-        // Step 1: Count up and check if we need to reset the game's timers
         r++;
-        if (r == p) {  // When r reaches TIME_LIMIT/p
-            u = h = q = TIME_SCALE;  // nulstil tidsmålere
+        if (r == p) {
+            u = h = q = TIME_SCALE;
         }
-        // Step 2: Pre-game setup, track generation
         else if (r < p) {
-            //printf("[DEBUG loop2 r: %d]\n", r);
-
-            // Determine the starting line graphic pattern (0..5)
             a = (r / screen_height) % 6;
-
-            // Pre-generate track segment
             r[C + p] = (l += (!a || a % 2) ? g : a - 3) / 4;
-
-            // Additional track/logic based on track number B
             if (2 * r <= p) {
                 i -= ((i + 34 && r / 149 % B) - (i - 34 && r / 353 % 3));
                 n += i;
@@ -152,11 +128,8 @@ void loop2(void) {
             } else {
                 r[C] = C[p - r];
             }
-
-            // Adjust speed/visual effect based on winter/normal
             v = 4 - 3 * z;
         }
-        // Step 3: Event polling
         else {
             if (XPending(display)) {
                 XNextEvent(display, &event);
@@ -164,25 +137,54 @@ void loop2(void) {
                 int key = XLookupKeysym(&event.xkey, 0);
                 if (key == XK_Escape) {
 					dump_logged_colors();
-                    exit(0); // can later be changed to running = 0
+                    exit(0); 
                 } else {
                     C[INPUT_OFFSET + key] ^= (event.type == KeyPress || event.type == KeyRelease);
                 }
             } else {
-                // No events, break out of loop2
+
                 break;
             }
         }
     } // end while(1)
 }
 
+void draw_mountains() {
+    m = n = screen_height;
+    f -= SPEED_SCALE;
+    o = 30 + 9 * i++;
+    n -= 2;
+    m += 3;
+    l = f / 0.7;
+    int color_value = y * INPUT_OFFSET + SPEED_SCALE - i * k;
+    draw_mode_setcolors(color_value);
+}
 
-void loop3(void) {
+void draw_sun() {
+    f = l = C[u] / -2 - t;
+    k += 17 * w;
+    o = k++ + 20;
+    n = k + k - k * k / 9;
+    int color_value = INPUT_OFFSET * p;
+    draw_mode_setcolors(color_value);
+}
+
+void draw_sky() {
+    y = 135;
+    int color_value = SPEED_SCALE * INPUT_OFFSET | screen_height;
+    draw_mode_setcolors(color_value);
+}
+
+void draw_background_timing() {
+    int color_value = 0;
+    draw_mode_setcolors(color_value);
+}
+
+
+void loop3(void) {	// Drawing of mountains, sky, sun - the entire background
     printf("[DEBUG enters loop3]\n");
 
-    int screen_width = screen_height * 2;
-
-    // --- Read input ---
+	// --- Read input ---
     int steer = C[INPUT_OFFSET + XK_Right] - C[INPUT_OFFSET + XK_Left];
 
     // --- Update control ---
@@ -192,129 +194,163 @@ void loop3(void) {
         j *= 0.9;
     }
 
-// --- Update acceleration / distance ---
-    int accel = C[INPUT_OFFSET + XK_Up] * 3;   // 3 if up arrow, otherwise 0
-    int decel = !!s;                            // 1 if s > 0, otherwise
+    int accel = C[INPUT_OFFSET + XK_Up] * 3; 
+    int decel = !!s; 
     int new_s = accel + s - decel;
     if (new_s > a) new_s = a;
     s = new_s;
     u += s / 9;
 
-// --- Update lap and reset if we pass the finish line ---
     if (u > p) {
-        if (h < q) q = h;     // Save best lap time
-        u %= p;               // Wrap distance
-        u = 0;                // Reset distance
-        c = 0;                // Reset lap counter
+        if (h < q) q = h; 
+        u %= p;
+        u = 0; 
+        c = 0; 
         gettimeofday((struct timeval*)H, 0);  
         c = SPEED_SCALE * *H + 1[H] / p - c;
     }
 
-    // --- Update position / offset ---
     t += j * (s + SPEED_SCALE) / screen_width;
 
-    if (i != 0) {  // Protect against division by 0
+    if (i != 0) {  
         t -= (s / i) * (C[u + 4] - C[u]);
     }
 
-    // --- Adjust speed depending on position ---
     if ((t * t) > p) {
-        t *= 0.97;  // Reduce steering/position for stability
-        s *= 0.8;   // Slows down
+        t *= 0.97;  
+        s *= 0.8;   
     } else if (g > a && (b * b) < (screen_height * 9)) {
-        s = i;      // Set speed (typically 0 at the start)
+        s = i;      
     }
 
-    // --- Reset steering and road parameters ---
     i = 0;
     k = 0;
     l = 0;
 
-    // --- Screen coordinates ---
     o = screen_width;
     n = screen_width;
 
-    // --- Drawing / color loop ---
     while (i < 5) {
-        int color_value;
-
         if (k / 17) {
-            // Highway case
             if (o++ == y) {
-                m = n = screen_height;
-                f -= SPEED_SCALE;
-                o = 30 + 9 * i++;
-            }
-            n -= 2;
-            m += 3;
-            l = f / 0.7;
-            color_value = y * INPUT_OFFSET + SPEED_SCALE - i * k;
-        } else {
-            if (k | !o) {
-                // Alternative path case
-                f = l = C[u] / -2 - t;
-                k += 17 * w;
-                o = k++ + 20;
-                n = k + k - k * k / 9;
-                color_value = INPUT_OFFSET * p;
+                draw_mountains();
             } else {
-                if (o-- < a) {
-                    y = 135;
-                    color_value = SPEED_SCALE * INPUT_OFFSET | screen_height;
-                } else {
-                    color_value = 0;
+                n -= 2;
+                m += 3;
+                l = f / 0.7;
+                int color_value = y * INPUT_OFFSET + SPEED_SCALE - i * k;
+                draw_mode_setcolors(color_value);
+            }
+        } else {
+            if (k | !o) { 
+                draw_sun();
+            } else {	
+                if (o-- < a) {  
+                    draw_sky();
+                } else {   
+                    draw_background_timing();
                 }
             }
         }
+    }
+}
 
-        // Draw with calculated color
-        draw_mode_setcolors(color_value);
+void draw_grass() {	
+	 n = 2 * screen_width;
+     if (z) {
+		
+		draw_mode_setcolors(r + k * INPUT_OFFSET * 8);
+	} else {
+		
+		draw_mode_setcolors(TIME_SCALE - k * SPEED_SCALE * SPEED_SCALE);
 
-        // Debug print (can be turned on/off)
-        // printf("[DEBUG] i=%d, o=%d, n=%d, m=%d, l=%d, color_value=%d\n",
-        //        i, o, n, m, l, color_value);
+	}    
+}
+	
+void draw_side_stripes() {	
+	n = 9 + x / screen_height;
+    if ((!k + z)) {	
+		r = screen_height * INPUT_OFFSET + 9;
+		draw_mode_setcolors(r);
+	
+	} else {	
+		draw_mode_setcolors(13107200); 
+		
+	}
+}
+
+void draw_road_color() {	
+	n -= x / (9 * screen_height);
+    if (i % p > 6) {
+		h = r * (3 + z) / 5;
+		draw_mode_setcolors(h);
+		
+	} else {
+		draw_mode_setcolors(r);
+		
+	}
+  
+}
+
+void draw_center_line() {	
+	n = x / (13 * screen_width);
+	if (k) {
+		draw_mode_setcolors(h);
+	
+	} else {
+		draw_mode_setcolors(r);
+		
+	}
+}
+
+void loop4(void) {	
+    printf("[DEBUG enters loop4]\n");
+  
+    x = 0;
+    g = 0;
+    m = 0;
+    f = 0;
+    a = i = u + screen_height;
+    d += 9;
+
+
+    while (1) {
+        if (o < f) {
+      
+            draw_grass(); 
+      
+            draw_side_stripes();
+        
+            draw_road_color();
+    
+            draw_center_line();
+          
+            o++;
+        } else {
+           
+            f = x / screen_height + 70 + C[i + p] - C[u + p];
+            o = x ? o : f;
+            k = (2 * i / 41) % 2;
+            l = C[--i] - C[u] - t;
+            x += screen_height - (y = i - u);
+
+          
+            if (!((d - i) % 410)) {
+                a = o;
+                b = l + B * x / screen_width;
+                g = x / SPEED_SCALE;
+            }
+
+            if (i <= u) {
+                break; // Stop loop
+            }
+        }
     }
 }
 
 
-void loop4(void) {
-    printf("[DEBUG enters loop4]\n");
-    int screen_width = screen_height * 2;
 
-    for (
-        x = g = m = f = 0,
-        a = i = u + screen_height,
-        d += 9;
-        o < f 
-            ? (
-				printf("[DEBUG loop4 o:] %d\n",o),
-                n = 2 * screen_width,
-                draw_mode_setcolors(z ? r + k * INPUT_OFFSET * 8 : TIME_SCALE - k * SPEED_SCALE * SPEED_SCALE),
-
-                n = 9 + x / screen_height,
-                draw_mode_setcolors(!k + z ? r = screen_height * INPUT_OFFSET + 9 : SPEED_SCALE << 17),
-
-                n -= x / 9 / screen_height,
-                draw_mode_setcolors(i % p > 6 ? h = r * (3 + z) / 5 : r),
-
-                n = x / 13 / screen_width,
-                draw_mode_setcolors(k ? h : r),
-
-                o++
-            )
-            : (
-                f = x / screen_height + 70 + C[i + p] - C[u + p],
-                o = x ? o : f,
-                k = 2 * i / 41 % 2,
-                l = C[--i] - C[u] - t,
-                x += screen_height - (y = i - u),
-                g = (d - i) % 410 ? g : (a = o, b = l + B * x / screen_width, x) / SPEED_SCALE,
-                i > u
-            );
-    );
-}
-
-void loop5(void) {
+void loop5(void) {	
     printf("[DEBUG enters loop5]\n");
     k = i = 0;
     x = g;
@@ -349,7 +385,8 @@ void loop5(void) {
         y = screen_height - o;
 
         h = (k * r + k * f / INPUT_OFFSET);
-		draw_mode_setcolors(h); // change (h - 1) to (h): no visible difference
+		
+        draw_mode_setcolors(h); 
 
         h = (k * r + k * f / INPUT_OFFSET);
     }
@@ -358,14 +395,15 @@ void loop5(void) {
 
 void loop6(void) {
     printf("[DEBUG enters loop6]\n");
-    int screen_width = screen_height * 2;
-
+    
     time_trigger();
+
 
     B = g ? B : 1 - h % 3;
 
-    i = 60;   
-    y = n = m; 
+    i = 60;           
+    y = n = m;        
+
 
     len = snprintf(P, sizeof(P),
         "Time: %1d'%02d\"%02d      High: %1d'%02d\"%02d      Speed: %03dmph",
@@ -375,7 +413,7 @@ void loop6(void) {
     );
     XDrawString(display, pixmap, gc, 30, x, P, len);
 
-    x = h; 
+    x = h;  
     f = 0;
 
     while (++f < 2 * z * screen_width) {
@@ -410,7 +448,7 @@ p = 10660;
 
 display = XOpenDisplay (0);
 	
-window = XCreateSimpleWindow (display, RootWindow(display, 0), 0, 0,  screen_height * 2, screen_height, 0, 0, 0);
+window = XCreateSimpleWindow (display, RootWindow(display, 0), 0, 0,  screen_width, screen_height, 0, 0, 0);
 gc = XCreateGC (display, window, 0, 0);
 	
 XStoreName(display, window, argv[0]);
@@ -420,7 +458,7 @@ XSelectInput (display, window, KeyPressMask | KeyReleaseMask);
 // Make the window visible
 XMapWindow (display, window);
 // Create a pixmap (offscreen drawing area)
-pixmap = XCreatePixmap (display, window, screen_height * 2, d = screen_height, DefaultDepth(display, 0));
+pixmap = XCreatePixmap (display, window, screen_width, d = screen_height, DefaultDepth(display, 0));
 
 int running = 1;
 

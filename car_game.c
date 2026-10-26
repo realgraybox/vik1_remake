@@ -1,30 +1,9 @@
-/*
- * ============================================================================
- *  PROJECT NAME / vik1_remake
- * ============================================================================
- * 
- *  ORIGINAL WORK CREDIT:
- *  This project is a de-obfuscated, modified, and enhanced version of 'vik1' 
- *  (an interactive X11 car racing game), originally written by Daniel Vik 
- *  for the 2004 International Obfuscated C Code Contest (IOCCC), where it 
- *  won "Best X11 game". The original code was dedicated to the Public Domain.
- * 
- *  LICENSE FOR THIS MODIFIED WORK:
- *  To the extent possible under law, the contributor has dedicated all 
- *  copyright and related and neighboring rights of their additions and 
- *  modifications to the public domain worldwide under the CC0 1.0 Universal 
- *  Public Domain Dedication.
- * 
- *  This work is distributed WITHOUT ANY WARRANTY; without even the implied 
- *  warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
- * 
- *  For the full CC0 legal text, see the 'LICENSE' file or visit:
- *  https://creativecommons.org
- * ============================================================================
+/* Based on vik1 by Daniel Vik, IOCCC 2004. 
+ * Modified by M.Glargaard (aka graybox) 2026. 
+ * Licensed under CC BY-SA 4.0
  */
 
-/* M.Glargaard (aka graybox) 2026
- * car_game.c - a readable and extended version of "vik1",
+/* car_game.c - a readable and extended version of "vik1",
  *              a winning entry of the 2004 IOCCC.
  *
  * The original program is kept unchanged in vik1.c.
@@ -45,11 +24,12 @@
  * 400x200 picture, which is scaled up to fill the window while
  * keeping its proportions (black bars where needed).
  */
-
+#define _XOPEN_SOURCE 500
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include <sys/time.h>
 #include <X11/Xlib.h>

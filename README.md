@@ -8,8 +8,8 @@ unreadable C: hills, curves, mountains, a sun, night and winter modes, a compute
 opponent, collisions and lap timing. This project started as an attempt to
 understand how a game like that can be made at all, and grew into a cleaned-up
 version with a few additions.
+Compiles to 101k with uclibc static linked and 19k with libc 64bit.
 
-![screenshot](screenshot.png)
 
 ## What's new compared to the original
 

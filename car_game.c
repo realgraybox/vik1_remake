@@ -1,58 +1,79 @@
 #include <stdio.h>
 #include <sys/time.h>
 #include <string.h>
+#include <unistd.h>  // for usleep
+#include <stdlib.h>
 #include <X11/Xlib.h>
 #include <X11/keysym.h>
 
 int g, h, i, j, k, l, m, n, p, q, r, v, x, y;
 int o, b, f, u, s, c, a, t, d, C[1<<18], B=4,  H[4];
+int len;
 
-int screen_height = 200;	//previous D=200,
-const int TIME_SCALE = 53300;	//previous E=53300,
-const int INPUT_OFFSET = 65793;	//previous F=65793,
-const int SPEED_SCALE = 100;	//previous A=100,
-//int e, replaced with screen_width in main
+int screen_height = 200;
+const int TIME_SCALE = 53300;
+const int INPUT_OFFSET = 65793;
+const int SPEED_SCALE = 100;
 
 int z=0;		//is_winter
 int w=0;		//is_night
 
 int main(int, char **);
-char **global_argv;
+char **global_argv = NULL;
+
+Display* display;
+Window window;
+Pixmap pixmap;
+XEvent event;
+GC gc;
+char P[99];
+
+#define ARG_DRAW_MODE  (100 << 17)
+#define ARG_WINTER_MODE (-1)
+
+#define FRAME_DELAY_US 65800
 
 int draw_mode_loop3_caseA(int value) {
     return main(value, global_argv);
 }
 
 int draw_mode_loop3_caseB(int value) {
-    return main(value, global_argv); 
+    return main(value, global_argv);
 }
 
 int draw_mode_loop4_caseA(int value) {
-    return main(value, global_argv);  
+    return main(value, global_argv); 
 }
 
 int draw_mode_loop4_caseB(int value) {
-    return main(value, global_argv); 
+    return main(value, global_argv);
 }
 
 int draw_mode_loop4_caseC(int value) {
-    return main(value, global_argv); 
+    return main(value, global_argv);
 }
 
 int draw_mode_loop4_caseD(int value) {
-    return main(value, global_argv);
+    return main(value, global_argv); 
 }
+
+//values ​​draw_mode_loop5_caseA receiver and effect:
+#define DM5_V1 1679212258	//solid-colored light blue cars
+#define DM5_V2 1679212458	//solid-colored light blue cars
+#define DM5_V3 1679212658	//solid-colored light green cars
+#define DM5_V4 1679243937	//solid dark blue cars
+//0 : solid black cars
 
 int draw_mode_loop5_caseA(int value) {
     return main(value, global_argv); 
 }
 
 int draw_mode_loop6_caseA(int value) {
-    return main(value, global_argv); 
+    return main(value, global_argv);  
 }
 
-int draw_mode_loop6_caseB(int value) {	
-    return main(value, global_argv);
+int draw_mode_loop6_caseB(int value) {
+    return main(value, global_argv);  
 }
 
 #define draw_mode(a) main(a,argv)
@@ -63,7 +84,6 @@ unsigned int color_component(int a, int argc, int y, int v, int z, int w) {
                ((((argc + 1) >> a) & 255) * (screen_height + y / (z | (w - 2))) / screen_height));
     return temp << a;
 }
-
 
 void parse_arguments(char *arg) {
     z = (strchr(arg, 'a') != NULL);	//is_winter
@@ -76,84 +96,90 @@ void parse_arguments(char *arg) {
     }
 }
 
-Display* display;
-Window window;
-Pixmap pixmap;
-GC gc;
-char P[99];
+void draw_car_and_set_color(Display *display, GC gc, int screen_height,
+                            int l, int m, int n, int o,
+                            int y, int v, int z, int w,
+                            int argc,
+                            struct timeval *H) {
+    XSetForeground(display, gc,
+        color_component(0, argc, y, v, z, w) |
+        color_component(8, argc, y, v, z, w) |
+        color_component(16, argc, y, v, z, w));
 
-int main(int argc, char** argv) {	
+    XDrawLine(display, pixmap, gc, screen_height + l - m, o, screen_height + l - n, o);
+    XDrawLine(display, pixmap, gc, screen_height + l + m, o, screen_height + l + n, o);
 
-global_argv = argv;
+    gettimeofday(H, 0);
+}
+
+
+
+
+
+int main(int argc, char** argv) {
+
+printf("[DEBUG] main(): argc=%d, argv[0]=%s, argv[1]=%s\n", argc, argv[0], argc > 1 ? argv[1] : "(none)");
+
+
+if (!global_argv) {
+    global_argv = argv;
+}
+
+printf("[DEBUG] global_argv: %s %s\n", global_argv[0], global_argv[1]);
+
+	/*fprintf(stderr, "[DEBUG] global_argv initialized to %p (argv[0]=%s)\n",
+        (void*)global_argv, global_argv ? global_argv[0] : "NULL");*/
+
 
 if (argv == NULL) {
     printf("main called from draw_mode: value = %d\n", argc);
 }
 
 int screen_width = screen_height * 2;
-XEvent event;
-
 
 // 1. for-loop for(initialization; condition; increment/decrement)
 for (
-    p = TIME_SCALE / 5;
-
-    // Conditional initialization depending on argc
+    p = 10660;
+    // Behavior depending on argc
     --argc & ~1 ? (
         // Set foreground color using bit-shifted color components
+        //fprintf(stderr, "[DEBUG] y=%d, v=%d, z=%d, w=%d\n", y, v, z, w),
         XSetForeground(display, gc,
 			color_component(0, argc, y, v, z, w) |
 			color_component(8, argc, y, v, z, w) |
-			color_component(16, argc, y, v, z, w)
-		),
-
+			color_component(16, argc, y, v, z, w) ),
         // Draw car lines
+        //fprintf(stderr, "[DEBUG] l=%d, m=%d, o=%d\n", l, m, o),
         XDrawLine(display, pixmap, gc, screen_height + l - m, o, screen_height + l - n, o),
         XDrawLine(display, pixmap, gc, screen_height + l + m, o, screen_height + l + n, o),
-
         // Record timestamp
         gettimeofday((struct timeval*)H, 0)
     ) : argc ? (
-		//fprintf(stderr, "[DEBUG] argc=%d, argv[0]=%s\n", argc, argv[0]),
-		//argv[1] ? fprintf(stderr, "[DEBUG] argv[1]=%s\n", argv[1]) : 0,
-		
 		//z, w, og B er is_winter, is_night, og track_number
-		
-        // Parse argv "a" - Choice between summer (no "a", z=0) and winter ("a", z=1)
-		/*z = **++argv == 'a',
-		fprintf(stderr, "[DEBUG] z=%d\n", z),
-
-		// Parse argv "d" - Choice between day (no "d", w=0) and night ("d", w=1)
-		w = (*argv)[z] == 'd',
-		fprintf(stderr, "[DEBUG] w=%d\n", w),
-
-		// Choice of race-track: track3 => B=4, track2 => B=2, track1 => B=3
-		B -= w * ((*argv)[z + 1] % 3),
-		fprintf(stderr, "[DEBUG] B after = %d\n", B),*/
-		
-		parse_arguments(argv[1]),
+		parse_arguments(argv[1]), //z, w, and B is winter, night and track_number
 		fprintf(stderr, "[DEBUG] z=%d, w=%d, B=%d\n", z, w, B),
         // Keep argc unchanged
         argc
     ) : ++argc;
-
-    // Copy drawn area to screen
-    XCopyArea(display, pixmap, window, gc, 0, 0, 2 * screen_height, screen_height, 0, 0),
-    XSync(display, 0),
-    XFlush(display),
-
-    // Wait for a short timeout (non-blocking select)
-    select(0, 0, 0, 0, ((struct timeval*)H) + 1)
+		// Copy drawn area to screen
+		XCopyArea(display, pixmap, window, gc, 0, 0, 2 * screen_height, screen_height, 0, 0),
+		XSync(display, 0),
+		XFlush(display),
+		// Wait for a short timeout (non-blocking select)
+		usleep(FRAME_DELAY_US)  // juster sleep time (FPS) in milliseconds
+		//select(0, 0, 0, 0, ((struct timeval*)H) + 1)
 )
 
 	{	
 
 	// 2. for-loop
 	for ( 
-		3[H] = INPUT_OFFSET;	// Sets a timestamp or animation counter
+		//3[H] = INPUT_OFFSET;	// Sets a timestamp or animation counter
 		
+		screen_height = 200;	//randomly chosen replacement
 		p==++r ? (
 		// Initial setup when r reaches p
+		fprintf(stderr, "[DEBUG] p=%d, r=%d\n", p, r),
 		display = XOpenDisplay (0),
 		gc = XCreateGC (display,
 		window = XCreateSimpleWindow (display, RootWindow(display, 0), 0, 0, screen_width, screen_height, 0, 0, 0), 0, 0),
@@ -181,10 +207,12 @@ for (
 		v = 4 - 3 * z
 	):
 			// Event handling: poll key state changes
-			XPending (display) ? (
-				C[INPUT_OFFSET+ XLookupKeysym (&event.xkey, 0 & XNextEvent (display, &event))]^=
-					(event.type == KeyPress || event.type == KeyRelease),
-					p
+			XPending(display) ? (
+        XNextEvent(display, &event),
+        XLookupKeysym(&event.xkey, 0) == XK_Escape ? exit(0) :
+        (C[INPUT_OFFSET + XLookupKeysym(&event.xkey, 0)] ^=
+            (event.type == KeyPress || event.type == KeyRelease)),
+        p
 			):0;
 	);
 
@@ -197,7 +225,7 @@ for (
 		j = k ? j + v * k * (j * k < 8) : j * 0.9, 
     
 		// 3. Speed update if space is held (s = skid or boost?)
-		u += (s = min(C[INPUT_OFFSET + XK_space] * 3 + s - !!s, a)) / 9, 
+		u += (s = min(C[INPUT_OFFSET + XK_Up] * 3 + s - !!s, a)) / 9, 
     
 		// 4. Lap handling: if passed finish line
 		c = u > p
@@ -222,30 +250,12 @@ for (
 
 		// Drawing logic, depends on state of 'k' (movement/input)
 		draw_mode_loop3_caseB(
-			(k / 17) 
-				? (o++ == y 
-					? (m = n = screen_height, f -= SPEED_SCALE, o = 30 + 9 * i++) 
-					: 0, 
-				n -= 2, 
-				m += 3, 
-				l = f / 0.7, 
-				y * INPUT_OFFSET + SPEED_SCALE - i * k
-				) 
-				: (
-					k | !o 
-						? (
-							f = l = C[u] / -2 - t, 
-							k += 17 * w, 
-							o = k++ + 20, 
-							n = k + k - k * k / 9, 
-							INPUT_OFFSET * p
-						) 
-						: (
-							o-- < a
-								? y = 135, SPEED_SCALE * INPUT_OFFSET | screen_height
-								: 0
-						)
-				)
+			(k / 17) ? (o++ == y ? (m = n = screen_height, f -= SPEED_SCALE, o = 30 + 9 * i++): 0, 
+				n -= 2, m += 3, l = f / 0.7, y * INPUT_OFFSET + SPEED_SCALE - i * k) 
+		: 	(k | !o ? (	f = l = C[u] / -2 - t, k += 17 * w,	o = k++ + 20, 
+						n = k + k - k * k / 9, INPUT_OFFSET * p) 
+		: (o-- < a ? y = 135, SPEED_SCALE * INPUT_OFFSET | screen_height : 0 )
+			)
 		)
 	);
 
@@ -258,8 +268,9 @@ for (
     
 		o < f 
 			? 
+
 				n = 2 * screen_width,
-				draw_mode_loop4_caseA(z ? r + k * INPUT_OFFSET * 8 : TIME_SCALE - k * SPEED_SCALE * SPEED_SCALE),	
+				draw_mode_loop4_caseA(z ? r + k * INPUT_OFFSET * 8 : TIME_SCALE - k * SPEED_SCALE * SPEED_SCALE),
           
 				n = 9 + x / screen_height,
 				draw_mode_loop4_caseB(!k + z ? r = screen_height * INPUT_OFFSET + 9 : SPEED_SCALE << 17),	
@@ -268,26 +279,23 @@ for (
 				draw_mode_loop4_caseC(i % p > 6 ? h = r * (3 + z) / 5 : r),	
 			
 				n = x / 13 / screen_width,
-				draw_mode_loop4_caseD(k ? h : r),		
+				draw_mode_loop4_caseD(k ? h : r),	
 			
 				o++		
 			: (
 
 				f = x / screen_height + 70 + C[i + p] - C[u + p],
             
-
 				o = x ? o : f,
             
 				k = 2 * i / 41 % 2,		
             
-				l = C[--i] - C[u] - t,		
+				l = C[--i] - C[u] - t,	
             
 				x += screen_height - (y = i - u),	
             
-
 				g = (d - i) % 410 ? g : (a = o, b = l + B * x / screen_width, x) / SPEED_SCALE,
             
-
 				i > u
 			);
 	);
@@ -320,26 +328,20 @@ for (
 		y = n = m,         // initialize y, n, m to the same value (probably screen position/score)
     
 		// Draw status text on screen
-		XDrawString(
-			display, pixmap, gc, 30, x, P,
-			sprintf(
-			P,
-            "Time: %1d'%02d\"%02d      High: %1d'%02d\"%02d      Speed: %03dmph",
-            h / SPEED_SCALE / i, h / SPEED_SCALE % i, h % SPEED_SCALE,       // Current time (min, sec, ticks)
-            q / SPEED_SCALE / i, q / SPEED_SCALE % i, q % SPEED_SCALE,       // High score time
-            s,
-            draw_mode_loop6_caseA(SPEED_SCALE << 17)                // Possibly a color/value update
-			)
+		len = snprintf(P, sizeof(P),
+			"Time: %1d'%02d\"%02d      High: %1d'%02d\"%02d      Speed: %03dmph",
+			h / 100 / i, h / 100 % i, h % 100,
+			q / 100 / i, q / 100 % i, q % 100,
+			s
 		),
-
-		x = h;             // Set x to current time/tick count (?)
-    
-		++f < 2 * z * screen_width;   // Loop limit depends on screen width (e) and difficulty (z)
-    
-		// Loop body: graphical computation and update
+		XDrawString(display, pixmap, gc, 30, x, P, len),
+        draw_mode_loop6_caseA(ARG_DRAW_MODE), // Trigger first part in loop1
+		x = h; // Set x to current time/tick count (?)
+    	++f < 2 * z * screen_width;   // Loop limit depends on screen width (e) and difficulty (z)
+    	// Loop body: graphical computation and update?
 		l = (x *= 3) % screen_width,
 		o = (x * x) % a,
-		draw_mode_loop6_caseB(-1)      // Some kind of drawing effect with calculated values
+		draw_mode_loop6_caseB(ARG_WINTER_MODE) // Trigger winter graphics
 	);
 	}
 	return SPEED_SCALE * *H + 1[H]/p - c;
